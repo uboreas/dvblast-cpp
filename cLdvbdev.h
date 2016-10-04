@@ -36,6 +36,28 @@
 
 namespace libcLdvbdev {
 
+   extern int i_frequency;
+   extern int i_fenum;
+   extern int i_voltage;
+   extern int b_tone;
+   extern int i_bandwidth;
+   extern int i_inversion;
+   extern int i_srate;
+   extern int i_fec;
+   extern int i_rolloff;
+   extern int i_satnum;
+   extern int i_uncommitted;
+   extern char *psz_modulation;
+   extern char *psz_delsys;
+   extern int i_pilot;
+   extern int i_mis;
+   extern int i_fec_lp;
+   extern int i_guard;
+   extern int i_transmission;
+   extern int i_hierarchy;
+   extern libcLdvb::mtime_t i_frontend_timeout_duration;
+   extern libcLdvb::mtime_t i_quit_timeout_duration;
+
    extern void dvb_Open();
    extern void dvb_Reset();
    extern int dvb_SetFilter(uint16_t i_pid);

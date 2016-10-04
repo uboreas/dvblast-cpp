@@ -31,6 +31,7 @@
 #ifdef HAVE_CLDVBHW
 
 #include <cLdvbev.h>
+#include <cLdvboutput.h>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -108,6 +109,9 @@ namespace libcLdvben50221 {
 
    int i_ca_handle = 0;
    int i_ca_type = -1;
+   int i_canum = 0;
+   fdev_ResendCAPMTsCB pf_ResendCAPMTs = 0;
+   fdev_PIDIsSelectedCB pf_PIDIsSelected = 0;
 
    static struct cLev_io cam_watcher;
    static struct cLev_timer slot_watcher;
@@ -1132,8 +1136,8 @@ namespace libcLdvben50221 {
       while ( (p_es = pmt_get_es( p_pmt, j )) != NULL ) {
          uint16_t i_pid = pmtn_get_pid( p_es );
          j++;
-         if (libcLdvb::pf_PIDIsSelected != 0) {
-            if ( libcLdvb::pf_PIDIsSelected(i_pid)) {
+         if (pf_PIDIsSelected != 0) {
+            if ( pf_PIDIsSelected(i_pid)) {
                b_has_es = true;
                b_has_ca = b_has_ca || HasCADescriptors( p_ids, pmtn_get_descs( p_es ) );
             }
@@ -1163,8 +1167,8 @@ namespace libcLdvben50221 {
       while ( (p_es = pmt_get_es( p_pmt, j )) != NULL ) {
          uint16_t i_pid = pmtn_get_pid( p_es );
          j++;
-         if (libcLdvb::pf_PIDIsSelected != 0) {
-            if (!libcLdvb::pf_PIDIsSelected(i_pid))
+         if (pf_PIDIsSelected != 0) {
+            if (!pf_PIDIsSelected(i_pid))
                continue;
          }
          p_capmt_n = capmt_get_es( p_capmt, k );
@@ -1312,8 +1316,8 @@ namespace libcLdvben50221 {
                cLbugf(cL::dbg_dvb, "- 0x%x\n", p_ids->pi_system_ids[i] );
             }
 
-            if (libcLdvb::pf_ResendCAPMTs != 0)
-               libcLdvb::pf_ResendCAPMTs();
+            if (pf_ResendCAPMTs != 0)
+               pf_ResendCAPMTs();
 
             break;
          }
@@ -1649,7 +1653,7 @@ namespace libcLdvben50221 {
       *pp_apdu += l + 4;
       *pi_size -= l + 4;
 
-      return dvb_string_get( d, l, libcLdvb::str_iv, (void *) 0);
+      return dvb_string_get( d, l, libcLdvboutput::iconv_cb, (void *) 0);
    }
 
    /*****************************************************************************
@@ -1904,7 +1908,7 @@ namespace libcLdvben50221 {
 
       memset( &caps, 0, sizeof( ca_caps_t ));
 
-      sprintf( psz_tmp, "/dev/dvb/adapter%d/ca%d", libcLdvb::i_adapter, libcLdvb::i_canum );
+      sprintf( psz_tmp, "/dev/dvb/adapter%d/ca%d", libcLdvb::i_adapter, i_canum );
       if( (i_ca_handle = open(psz_tmp, O_RDWR | O_NONBLOCK)) < 0 )
       {
          cLbugf(cL::dbg_dvb, "failed opening CAM device %s (%s)\n",
@@ -2046,7 +2050,7 @@ namespace libcLdvben50221 {
 #ifdef HLCI_WAIT_CAM_READY
          while( ca_msg.msg[8] == 0xff && ca_msg.msg[9] == 0xff )
          {
-            msleep(1);
+            libcLdvb::msleep(1);
             cLbug(cL::dbg_dvb, "CAM: please wait\n" );
             APDUSend( NULL, 1, AOT_APPLICATION_INFO_ENQ, NULL, 0 );
             ca_msg.length=3;
@@ -2396,6 +2400,9 @@ namespace libcLdvben50221 {
 
    int i_ca_handle = 0;
    int i_ca_type = -1;
+   int i_canum = 0;
+   fdev_ResendCAPMTsCB pf_ResendCAPMTs = 0;
+   fdev_PIDIsSelectedCB pf_PIDIsSelected = 0;
 
    void en50221_Init( void ) { };
    void en50221_AddPMT( uint8_t *p_pmt ) { };

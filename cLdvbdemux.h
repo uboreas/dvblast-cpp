@@ -50,6 +50,24 @@ namespace libcLdvbdemux {
          uint8_t  i_scrambling;                    /* Scrambling bits from the last ts packet: 0 = Not scrambled, 1 = Reserved for future use, 2 = Scrambled with even key, 3 = Scrambled with odd key */
    } ts_pid_info_t;
 
+   typedef void (*fdev_openCB)(void);
+   typedef void (*fdev_resetCB)(void);
+   typedef int (*fdev_setfilterCB)(uint16_t);
+   typedef void (*fdev_unsetfilterCB)(int, uint16_t);
+
+   extern const char *psz_conf_file;
+   extern bool b_enable_emm;
+   extern bool b_enable_ecm;
+   extern libcLdvb::mtime_t i_es_timeout;
+   extern int b_budget_mode;
+   extern int b_select_pmts;
+   extern int b_any_type;
+   extern uint16_t pi_newpids[CLDVB_N_MAP_PIDS];
+   extern fdev_openCB pf_Open;
+   extern fdev_resetCB pf_Reset;
+   extern fdev_setfilterCB pf_SetFilter;
+   extern fdev_unsetfilterCB pf_UnsetFilter;
+
    extern void demux_Open( void );
    extern void demux_Run( libcLdvboutput::block_t *p_ts );
    extern void demux_Change( libcLdvboutput::output_t *p_output, const libcLdvboutput::output_config_t *p_config );

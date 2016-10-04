@@ -124,7 +124,8 @@ namespace libcLdvbcomm {
 
       i_command = p_buffer[1];
 
-      if ( libcLdvb::i_frequency == 0 ) /* ASI or UDP, disable DVB only commands */
+#ifdef HAVE_CLDVBHW
+      if ( libcLdvbdev::i_frequency == 0 ) /* ASI or UDP, disable DVB only commands */
       {
          switch ( i_command )
          {
@@ -141,6 +142,7 @@ namespace libcLdvbcomm {
                goto return_answer;
          }
       }
+#endif
 
       switch ( i_command )
       {

@@ -172,8 +172,7 @@ namespace libcLdvboutput {
          struct udprawpkt raw_pkt_header;
    } output_t;
 
-   //extern libcLdvb::mtime_t i_wallclock;
-
+   extern const char *psz_dvb_charset;
    extern int b_random_tsid;
    extern bool b_do_remap;
    extern output_t output_dup;
@@ -224,6 +223,8 @@ namespace libcLdvboutput {
    extern void config_Print( output_config_t *p_config );
    extern bool config_ParseHost( output_config_t *p_config, char *psz_string );
    extern void config_Defaults( output_config_t *p_config );
+
+   extern char *iconv_cb(void *_unused, const char *psz_encoding, char *p_string, size_t i_length);
 
 } /* namespace libcLdvboutput */
 

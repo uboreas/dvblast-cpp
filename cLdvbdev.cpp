@@ -50,6 +50,28 @@
 
 namespace libcLdvbdev {
 
+   int i_frequency = 0;
+   int i_fenum = 0;
+   int i_voltage = 13;
+   int b_tone = 0;
+   int i_bandwidth = 8;
+   int i_inversion = -1;
+   int i_srate = 27500000;
+   int i_fec = 999;
+   int i_rolloff = 35;
+   int i_satnum = 0;
+   int i_uncommitted = 0;
+   char *psz_modulation = (char *) 0;
+   char *psz_delsys = (char *) 0;
+   int i_pilot = -1;
+   int i_mis = 0;
+   int i_fec_lp = 999;
+   int i_guard = -1;
+   int i_transmission = -1;
+   int i_hierarchy = -1;
+   libcLdvb::mtime_t i_frontend_timeout_duration = DEFAULT_FRONTEND_TIMEOUT;
+   libcLdvb::mtime_t i_quit_timeout_duration = 0;
+
    static int i_frontend, i_dvr;
    static struct cLev_io frontend_watcher, dvr_watcher;
    static struct cLev_timer lock_watcher, mute_watcher, print_watcher;
@@ -74,9 +96,9 @@ namespace libcLdvbdev {
 
       cLbugf(cL::dbg_dvb, "compiled with DVB API version %d.%d\n", DVB_API_VERSION, DVB_API_VERSION_MINOR );
 
-      if ( libcLdvb::i_frequency )
+      if ( i_frequency )
       {
-         sprintf( psz_tmp, "/dev/dvb/adapter%d/frontend%d", libcLdvb::i_adapter, libcLdvb::i_fenum );
+         sprintf( psz_tmp, "/dev/dvb/adapter%d/frontend%d", libcLdvb::i_adapter, i_fenum );
          if( (i_frontend = open(psz_tmp, O_RDWR | O_NONBLOCK)) < 0 )
          {
             cLbugf(cL::dbg_dvb, "opening device %s failed (%s)\n", psz_tmp,
@@ -91,7 +113,7 @@ namespace libcLdvbdev {
          i_frontend = -1;
       }
 
-      sprintf( psz_tmp, "/dev/dvb/adapter%d/dvr%d", libcLdvb::i_adapter, libcLdvb::i_fenum );
+      sprintf( psz_tmp, "/dev/dvb/adapter%d/dvr%d", libcLdvb::i_adapter, i_fenum );
 
       if( (i_dvr = open(psz_tmp, O_RDONLY | O_NONBLOCK)) < 0 )
       {
@@ -116,8 +138,8 @@ namespace libcLdvbdev {
       }
 
       cLev_timer_init(&lock_watcher, FrontendLockCb,
-            libcLdvb::i_frontend_timeout_duration / 1000000.,
-            libcLdvb::i_frontend_timeout_duration / 1000000.);
+            i_frontend_timeout_duration / 1000000.,
+            i_frontend_timeout_duration / 1000000.);
       cLev_timer_init(&mute_watcher, DVRMuteCb,
             DVB_DVR_READ_TIMEOUT / 1000000.,
             DVB_DVR_READ_TIMEOUT / 1000000.);
@@ -130,7 +152,7 @@ namespace libcLdvbdev {
     *****************************************************************************/
    void dvb_Reset( void )
    {
-      if ( libcLdvb::i_frequency )
+      if ( i_frequency )
          FrontendSet(true);
    }
 
@@ -180,7 +202,7 @@ namespace libcLdvbdev {
    {
       cLbug(cL::dbg_dvb, "no DVR output, resetting\n" );
       cLev_timer_stop(loop, w);
-      if ( libcLdvb::i_frequency )
+      if ( i_frequency )
          FrontendSet(false);
       libcLdvben50221::en50221_Reset();
    }
@@ -198,7 +220,7 @@ namespace libcLdvbdev {
       char psz_tmp[128];
       int i_fd;
 
-      sprintf( psz_tmp, "/dev/dvb/adapter%d/demux%d", libcLdvb::i_adapter, libcLdvb::i_fenum );
+      sprintf( psz_tmp, "/dev/dvb/adapter%d/demux%d", libcLdvb::i_adapter, i_fenum );
       if( (i_fd = open(psz_tmp, O_RDWR)) < 0 )
       {
          cLbugf(cL::dbg_dvb, "DMXSetFilter: opening device failed (%s)\n",
@@ -342,7 +364,7 @@ if ( i_diff & (x) )                                                 \
             cLbug(cL::dbg_dvb, "frontend has lost lock\n" );
 
 
-            if (libcLdvb::i_frontend_timeout_duration)
+            if (i_frontend_timeout_duration)
             {
                cLev_timer_stop(libcLdvb::event_loop, &lock_watcher);
                cLev_timer_again(loop, &mute_watcher);
@@ -356,7 +378,7 @@ if ( i_diff & (x) )                                                 \
          {
             /* The frontend was reinited. */
             cLbug(cL::dbg_dvb, "reiniting frontend\n");
-            if ( libcLdvb::i_frequency )
+            if ( i_frequency )
                FrontendSet(true);
          }
          }
@@ -367,7 +389,7 @@ if ( i_diff & (x) )                                                 \
    //struct ev_timer *
    static void FrontendLockCb(void *loop, void *w, int revents)
    {
-      if ( libcLdvb::i_quit_timeout_duration )
+      if ( i_quit_timeout_duration )
       {
          cLbug(cL::dbg_dvb, "no lock\n" );
          cLev_break(loop, 2); //EVBREAK_ALL
@@ -377,7 +399,7 @@ if ( i_diff & (x) )                                                 \
       cLbug(cL::dbg_dvb, "no lock, tuning again\n" );
       cLev_timer_stop(loop, w);
 
-      if ( libcLdvb::i_frequency )
+      if ( i_frequency )
          FrontendSet(false);
    }
 
@@ -387,7 +409,7 @@ if ( i_diff & (x) )                                                 \
       fe_sec_tone_mode_t fe_tone;
       int bis_frequency;
 
-      switch ( libcLdvb::i_voltage )
+      switch ( i_voltage )
       {
          case 0: fe_voltage = SEC_VOLTAGE_OFF; break;
          default:
@@ -395,46 +417,46 @@ if ( i_diff & (x) )                                                 \
          case 18: fe_voltage = SEC_VOLTAGE_18; break;
       }
 
-      fe_tone = libcLdvb::b_tone ? SEC_TONE_ON : SEC_TONE_OFF;
+      fe_tone = b_tone ? SEC_TONE_ON : SEC_TONE_OFF;
 
       /* Automatic mode. */
-      if ( libcLdvb::i_frequency >= 950000 && libcLdvb::i_frequency <= 2150000 )
+      if ( i_frequency >= 950000 && i_frequency <= 2150000 )
       {
-         cLbugf(cL::dbg_dvb, "frequency %d is in IF-band\n", libcLdvb::i_frequency );
-         bis_frequency = libcLdvb::i_frequency;
+         cLbugf(cL::dbg_dvb, "frequency %d is in IF-band\n", i_frequency );
+         bis_frequency = i_frequency;
       }
-      else if ( libcLdvb::i_frequency >= 2500000 && libcLdvb::i_frequency <= 2700000 )
+      else if ( i_frequency >= 2500000 && i_frequency <= 2700000 )
       {
-         cLbugf(cL::dbg_dvb, "frequency %d is in S-band\n", libcLdvb::i_frequency );
-         bis_frequency = 3650000 - libcLdvb::i_frequency;
+         cLbugf(cL::dbg_dvb, "frequency %d is in S-band\n", i_frequency );
+         bis_frequency = 3650000 - i_frequency;
       }
-      else if ( libcLdvb::i_frequency >= 3400000 && libcLdvb::i_frequency <= 4200000 )
+      else if ( i_frequency >= 3400000 && i_frequency <= 4200000 )
       {
-         cLbugf(cL::dbg_dvb, "frequency %d is in C-band (lower)\n", libcLdvb::i_frequency );
-         bis_frequency = 5150000 - libcLdvb::i_frequency;
+         cLbugf(cL::dbg_dvb, "frequency %d is in C-band (lower)\n", i_frequency );
+         bis_frequency = 5150000 - i_frequency;
       }
-      else if ( libcLdvb::i_frequency >= 4500000 && libcLdvb::i_frequency <= 4800000 )
+      else if ( i_frequency >= 4500000 && i_frequency <= 4800000 )
       {
-         cLbugf(cL::dbg_dvb, "frequency %d is in C-band (higher)\n", libcLdvb::i_frequency );
-         bis_frequency = 5950000 - libcLdvb::i_frequency;
+         cLbugf(cL::dbg_dvb, "frequency %d is in C-band (higher)\n", i_frequency );
+         bis_frequency = 5950000 - i_frequency;
       }
-      else if ( libcLdvb::i_frequency >= 10700000 && libcLdvb::i_frequency < 11700000 )
+      else if ( i_frequency >= 10700000 && i_frequency < 11700000 )
       {
          cLbugf(cL::dbg_dvb, "frequency %d is in Ku-band (lower)\n",
-               libcLdvb::i_frequency );
-         bis_frequency = libcLdvb::i_frequency - 9750000;
+               i_frequency );
+         bis_frequency = i_frequency - 9750000;
       }
-      else if ( libcLdvb::i_frequency >= 11700000 && libcLdvb::i_frequency <= 13250000 )
+      else if ( i_frequency >= 11700000 && i_frequency <= 13250000 )
       {
          cLbugf(cL::dbg_dvb, "frequency %d is in Ku-band (higher)\n",
-               libcLdvb::i_frequency );
-         bis_frequency = libcLdvb::i_frequency - 10600000;
+               i_frequency );
+         bis_frequency = i_frequency - 10600000;
          fe_tone = SEC_TONE_ON;
       }
       else
       {
          cLbugf(cL::dbg_dvb, "frequency %d is out of any known band\n",
-               libcLdvb::i_frequency );
+               i_frequency );
          exit(1);
       }
 
@@ -456,7 +478,7 @@ if ( i_diff & (x) )                                                 \
       libcLdvb::msleep(100000);
 
       /* Diseqc */
-      if ( libcLdvb::i_satnum > 0 && libcLdvb::i_satnum < 5 )
+      if ( i_satnum > 0 && i_satnum < 5 )
       {
          /* digital satellite equipment control,
           * specification is available from http://www.eutelsat.com/
@@ -471,14 +493,14 @@ if ( i_diff & (x) )                                                 \
          { {0xe0, 0x10, 0x38, 0xf0, 0x00, 0x00}, 4};
 
          cmd.msg[3] = 0xf0 /* reset bits */
-               | ((libcLdvb::i_satnum - 1) << 2)
+               | ((i_satnum - 1) << 2)
                | (fe_voltage == SEC_VOLTAGE_13 ? 0 : 2)
                | (fe_tone == SEC_TONE_ON ? 1 : 0);
 
-         if ( libcLdvb::i_uncommitted > 0 && libcLdvb::i_uncommitted < 5 )
+         if ( i_uncommitted > 0 && i_uncommitted < 5 )
          {
             uncmd.msg[3] = 0xf0 /* reset bits */
-                  | ((libcLdvb::i_uncommitted - 1) << 2)
+                  | ((i_uncommitted - 1) << 2)
                   | (fe_voltage == SEC_VOLTAGE_13 ? 0 : 2)
                   | (fe_tone == SEC_TONE_ON ? 1 : 0);
             if( ioctl( i_frontend, FE_DISEQC_SEND_MASTER_CMD, &uncmd ) < 0 )
@@ -517,11 +539,11 @@ if ( i_diff & (x) )                                                 \
          }
          libcLdvb::msleep(100000); /* Again, should be 15 ms */
       }
-      else if ( libcLdvb::i_satnum == 0xA || libcLdvb::i_satnum == 0xB )
+      else if ( i_satnum == 0xA || i_satnum == 0xB )
       {
          /* A or B simple diseqc ("diseqc-compatible") */
          if( ioctl( i_frontend, FE_DISEQC_SEND_BURST,
-               libcLdvb::i_satnum == 0xB ? SEC_MINI_B : SEC_MINI_A ) < 0 )
+               i_satnum == 0xB ? SEC_MINI_B : SEC_MINI_A ) < 0 )
          {
             cLbugf(cL::dbg_dvb, "ioctl FE_SEND_BURST failed (%s)\n", strerror(errno) );
             exit(1);
@@ -537,7 +559,7 @@ if ( i_diff & (x) )                                                 \
 
       libcLdvb::msleep(100000); /* ... */
 
-      cLbugf(cL::dbg_dvb, "configuring LNB to v=%d p=%d satnum=%x uncommitted=%x\n", libcLdvb::i_voltage, libcLdvb::b_tone, libcLdvb::i_satnum, libcLdvb::i_uncommitted );
+      cLbugf(cL::dbg_dvb, "configuring LNB to v=%d p=%d satnum=%x uncommitted=%x\n", i_voltage, b_tone, i_satnum, i_uncommitted );
       return bis_frequency;
    }
 
@@ -555,12 +577,12 @@ if ( i_diff & (x) )                                                 \
     *****************************************************************************/
    static fe_spectral_inversion_t GetInversion(void)
    {
-      switch ( libcLdvb::i_inversion )
+      switch ( i_inversion )
       {
          case 0:  return INVERSION_OFF;
          case 1:  return INVERSION_ON;
          default:
-            cLbugf(cL::dbg_dvb, "invalid inversion %d\n", libcLdvb::i_inversion );
+            cLbugf(cL::dbg_dvb, "invalid inversion %d\n", i_inversion );
          case -1: return INVERSION_AUTO;
       }
    }
@@ -593,13 +615,13 @@ if ( i_diff & (x) )                                                 \
       return FEC_AUTO;
    }
 
-#define GetFECInner(caps) GetFEC(caps, libcLdvb::i_fec)
-#define GetFECLP(caps) GetFEC(caps, libcLdvb::i_fec_lp)
+#define GetFECInner(caps) GetFEC(caps, i_fec)
+#define GetFECLP(caps) GetFEC(caps, i_fec_lp)
 
    static fe_modulation_t GetModulation(void)
    {
 #define GET_MODULATION( mod )                                               \
-      if ( !strcasecmp( libcLdvb::psz_modulation, #mod ) )                              \
+      if ( !strcasecmp( psz_modulation, #mod ) )                              \
       return mod;
 
       GET_MODULATION(QPSK);
@@ -617,46 +639,46 @@ if ( i_diff & (x) )                                                 \
       GET_MODULATION(DQPSK);
 
 #undef GET_MODULATION
-      cLbugf(cL::dbg_dvb, "invalid modulation %s\n", libcLdvb::psz_modulation );
+      cLbugf(cL::dbg_dvb, "invalid modulation %s\n", psz_modulation );
       exit(1);
    }
 
    static fe_pilot_t GetPilot(void)
    {
-      switch ( libcLdvb::i_pilot )
+      switch ( i_pilot )
       {
          case 0:  return PILOT_OFF;
          case 1:  return PILOT_ON;
          default:
-            cLbugf(cL::dbg_dvb, "invalid pilot %d\n", libcLdvb::i_pilot );
+            cLbugf(cL::dbg_dvb, "invalid pilot %d\n", i_pilot );
          case -1: return PILOT_AUTO;
       }
    }
 
    static fe_rolloff_t GetRollOff(void)
    {
-      switch ( libcLdvb::i_rolloff )
+      switch ( i_rolloff )
       {
          case -1:
          case  0: return ROLLOFF_AUTO;
          case 20: return ROLLOFF_20;
          case 25: return ROLLOFF_25;
          default:
-            cLbugf(cL::dbg_dvb, "invalid rolloff %d\n", libcLdvb::i_rolloff );
+            cLbugf(cL::dbg_dvb, "invalid rolloff %d\n", i_rolloff );
          case 35: return ROLLOFF_35;
       }
    }
 
    static fe_guard_interval_t GetGuard(void)
    {
-      switch ( libcLdvb::i_guard )
+      switch ( i_guard )
       {
          case 32: return GUARD_INTERVAL_1_32;
          case 16: return GUARD_INTERVAL_1_16;
          case  8: return GUARD_INTERVAL_1_8;
          case  4: return GUARD_INTERVAL_1_4;
          default:
-            cLbugf(cL::dbg_dvb, "invalid guard interval %d\n", libcLdvb::i_guard );
+            cLbugf(cL::dbg_dvb, "invalid guard interval %d\n", i_guard );
          case -1:
          case  0: return GUARD_INTERVAL_AUTO;
       }
@@ -664,7 +686,7 @@ if ( i_diff & (x) )                                                 \
 
    static fe_transmit_mode_t GetTransmission(void)
    {
-      switch ( libcLdvb::i_transmission )
+      switch ( i_transmission )
       {
          case 2: return TRANSMISSION_MODE_2K;
          case 8: return TRANSMISSION_MODE_8K;
@@ -672,7 +694,7 @@ if ( i_diff & (x) )                                                 \
          case 4: return TRANSMISSION_MODE_4K;
 #endif
          default:
-            cLbugf(cL::dbg_dvb, "invalid tranmission mode %d\n", libcLdvb::i_transmission );
+            cLbugf(cL::dbg_dvb, "invalid tranmission mode %d\n", i_transmission );
          case -1:
          case 0: return TRANSMISSION_MODE_AUTO;
       }
@@ -680,14 +702,14 @@ if ( i_diff & (x) )                                                 \
 
    static fe_hierarchy_t GetHierarchy(void)
    {
-      switch ( libcLdvb::i_hierarchy )
+      switch ( i_hierarchy )
       {
          case 0: return HIERARCHY_NONE;
          case 1: return HIERARCHY_1;
          case 2: return HIERARCHY_2;
          case 4: return HIERARCHY_4;
          default:
-            cLbugf(cL::dbg_dvb, "invalid intramission mode %d\n", libcLdvb::i_transmission );
+            cLbugf(cL::dbg_dvb, "invalid intramission mode %d\n", i_transmission );
          case -1: return HIERARCHY_AUTO;
       }
    }
@@ -808,25 +830,25 @@ if ( i_diff & (x) )                                                 \
    static fe_delivery_system_t
    FrontendGuessSystem( fe_delivery_system_t *p_systems, int i_systems )
    {
-      if ( libcLdvb::psz_delsys != NULL )
+      if ( psz_delsys != NULL )
       {
-         if ( !strcasecmp( libcLdvb::psz_delsys, "DVBS" ) )
+         if ( !strcasecmp( psz_delsys, "DVBS" ) )
             return SYS_DVBS;
-         if ( !strcasecmp( libcLdvb::psz_delsys, "DVBS2" ) )
+         if ( !strcasecmp( psz_delsys, "DVBS2" ) )
             return SYS_DVBS2;
-         if ( !strcasecmp( libcLdvb::psz_delsys, "DVBC_ANNEX_A" ) )
+         if ( !strcasecmp( psz_delsys, "DVBC_ANNEX_A" ) )
 #if DVBAPI_VERSION >= 505
             return SYS_DVBC_ANNEX_A;
 #else
          return SYS_DVBC_ANNEX_AC;
 #endif
-         if ( !strcasecmp( libcLdvb::psz_delsys, "DVBC_ANNEX_B" ) )
+         if ( !strcasecmp( psz_delsys, "DVBC_ANNEX_B" ) )
             return SYS_DVBC_ANNEX_B;
-         if ( !strcasecmp( libcLdvb::psz_delsys, "DVBT" ) )
+         if ( !strcasecmp( psz_delsys, "DVBT" ) )
             return SYS_DVBT;
-         if ( !strcasecmp( libcLdvb::psz_delsys, "ATSC" ) )
+         if ( !strcasecmp( psz_delsys, "ATSC" ) )
             return SYS_ATSC;
-         cLbugf(cL::dbg_dvb, "unknown delivery system %s\n", libcLdvb::psz_delsys );
+         cLbugf(cL::dbg_dvb, "unknown delivery system %s\n", psz_delsys );
          exit(1);
       }
 
@@ -839,24 +861,24 @@ if ( i_diff & (x) )                                                 \
          switch ( p_systems[i] )
          {
             case SYS_DVBS:
-               if ( libcLdvb::i_frequency < 50000000 )
+               if ( i_frequency < 50000000 )
                   return SYS_DVBS;
                break;
 #if DVBAPI_VERSION >= 505
             case SYS_DVBC_ANNEX_A:
-               if ( libcLdvb::i_frequency > 50000000 || libcLdvb::i_srate != 27500000 ||
-                     libcLdvb::psz_modulation != NULL )
+               if ( i_frequency > 50000000 || i_srate != 27500000 ||
+                     psz_modulation != NULL )
                   return SYS_DVBC_ANNEX_A;
                break;
 #else
             case SYS_DVBC_ANNEX_AC:
-               if ( libcLdvb::i_frequency > 50000000 || libcLdvb::i_srate != 27500000 ||
-                     libcLdvb::psz_modulation != NULL )
+               if ( i_frequency > 50000000 || i_srate != 27500000 ||
+                     psz_modulation != NULL )
                   return SYS_DVBC_ANNEX_AC;
                break;
 #endif
             case SYS_DVBT:
-               if ( libcLdvb::i_frequency > 50000000 )
+               if ( i_frequency > 50000000 )
                   return SYS_DVBT;
                break;
             default:
@@ -957,11 +979,11 @@ if ( i_diff & (x) )                                                 \
          case SYS_DVBT:
             p = &dvbt_cmdseq;
             p->props[DELSYS].u.data = system;
-            p->props[FREQUENCY].u.data = libcLdvb::i_frequency;
+            p->props[FREQUENCY].u.data = i_frequency;
             p->props[INVERSION].u.data = GetInversion();
-            if ( libcLdvb::psz_modulation != NULL )
+            if ( psz_modulation != NULL )
                p->props[MODULATION].u.data = GetModulation();
-            p->props[BANDWIDTH].u.data = libcLdvb::i_bandwidth * 1000000;
+            p->props[BANDWIDTH].u.data = i_bandwidth * 1000000;
             p->props[FEC_INNER].u.data = GetFECInner(info.caps);
             p->props[FEC_LP].u.data = GetFECLP(info.caps);
             p->props[GUARD].u.data = GetGuard();
@@ -969,10 +991,10 @@ if ( i_diff & (x) )                                                 \
             p->props[HIERARCHY].u.data = GetHierarchy();
 
             cLbugf(cL::dbg_dvb, "tuning DVB-T frontend to f=%d bandwidth=%d inversion=%d fec_hp=%d fec_lp=%d hierarchy=%d modulation=%s guard=%d transmission=%d\n",
-                  libcLdvb::i_frequency, libcLdvb::i_bandwidth, libcLdvb::i_inversion, libcLdvb::i_fec, libcLdvb::i_fec_lp,
-                  libcLdvb::i_hierarchy,
-                  libcLdvb::psz_modulation == NULL ? "qam_auto" : libcLdvb::psz_modulation,
-                        libcLdvb::i_guard, libcLdvb::i_transmission );
+                  i_frequency, i_bandwidth, i_inversion, i_fec, i_fec_lp,
+                  i_hierarchy,
+                  psz_modulation == NULL ? "qam_auto" : psz_modulation,
+                        i_guard, i_transmission );
             break;
 
 #if DVBAPI_VERSION >= 505
@@ -981,64 +1003,64 @@ if ( i_diff & (x) )                                                 \
          case SYS_DVBC_ANNEX_AC:
 #endif
             p = &dvbc_cmdseq;
-            p->props[FREQUENCY].u.data = libcLdvb::i_frequency;
+            p->props[FREQUENCY].u.data = i_frequency;
             p->props[INVERSION].u.data = GetInversion();
-            if ( libcLdvb::psz_modulation != NULL )
+            if ( psz_modulation != NULL )
                p->props[MODULATION].u.data = GetModulation();
-            p->props[SYMBOL_RATE].u.data = libcLdvb::i_srate;
+            p->props[SYMBOL_RATE].u.data = i_srate;
 
             cLbugf(cL::dbg_dvb, "tuning DVB-C frontend to f=%d srate=%d inversion=%d modulation=%s\n",
-                  libcLdvb::i_frequency, libcLdvb::i_srate, libcLdvb::i_inversion,
-                  libcLdvb::psz_modulation == NULL ? "qam_auto" : libcLdvb::psz_modulation );
+                  i_frequency, i_srate, i_inversion,
+                  psz_modulation == NULL ? "qam_auto" : psz_modulation );
             break;
 
          case SYS_DVBC_ANNEX_B:
             p = &atsc_cmdseq;
             p->props[DELSYS].u.data = system;
-            p->props[FREQUENCY].u.data = libcLdvb::i_frequency;
+            p->props[FREQUENCY].u.data = i_frequency;
             p->props[INVERSION].u.data = GetInversion();
-            if ( libcLdvb::psz_modulation != NULL )
+            if ( psz_modulation != NULL )
                p->props[MODULATION].u.data = GetModulation();
 
             cLbugf(cL::dbg_dvb, "tuning ATSC cable frontend to f=%d inversion=%d modulation=%s\n",
-                  libcLdvb::i_frequency, libcLdvb::i_inversion,
-                  libcLdvb::psz_modulation == NULL ? "qam_auto" : libcLdvb::psz_modulation );
+                  i_frequency, i_inversion,
+                  psz_modulation == NULL ? "qam_auto" : psz_modulation );
             break;
 
          case SYS_DVBS:
          case SYS_DVBS2:
-            if ( libcLdvb::psz_modulation != NULL )
+            if ( psz_modulation != NULL )
             {
                p = &dvbs2_cmdseq;
                p->props[MODULATION].u.data = GetModulation();
                p->props[PILOT].u.data = GetPilot();
                p->props[ROLLOFF].u.data = GetRollOff();
-               p->props[MIS].u.data = libcLdvb::i_mis;
+               p->props[MIS].u.data = i_mis;
             }
             else
                p = &dvbs_cmdseq;
 
             p->props[INVERSION].u.data = GetInversion();
-            p->props[SYMBOL_RATE].u.data = libcLdvb::i_srate;
+            p->props[SYMBOL_RATE].u.data = i_srate;
             p->props[FEC_INNER].u.data = GetFECInner(info.caps);
             p->props[FREQUENCY].u.data = FrontendDoDiseqc();
 
             cLbugf(cL::dbg_dvb, "tuning DVB-S frontend to f=%d srate=%d inversion=%d fec=%d rolloff=%d modulation=%s pilot=%d mis=%d\n",
-                  libcLdvb::i_frequency, libcLdvb::i_srate, libcLdvb::i_inversion, libcLdvb::i_fec, libcLdvb::i_rolloff,
-                  libcLdvb::psz_modulation == NULL ? "legacy" : libcLdvb::psz_modulation, libcLdvb::i_pilot,
-                        libcLdvb::i_mis );
+                  i_frequency, i_srate, i_inversion, i_fec, i_rolloff,
+                  psz_modulation == NULL ? "legacy" : psz_modulation, i_pilot,
+                        i_mis );
             break;
 
          case SYS_ATSC:
             p = &atsc_cmdseq;
-            p->props[FREQUENCY].u.data = libcLdvb::i_frequency;
+            p->props[FREQUENCY].u.data = i_frequency;
             p->props[INVERSION].u.data = GetInversion();
-            if ( libcLdvb::psz_modulation != NULL )
+            if ( psz_modulation != NULL )
                p->props[MODULATION].u.data = GetModulation();
 
             cLbugf(cL::dbg_dvb, "tuning ATSC frontend to f=%d inversion=%d modulation=%s\n",
-                  libcLdvb::i_frequency, libcLdvb::i_inversion,
-                  libcLdvb::psz_modulation == NULL ? "qam_auto" : libcLdvb::psz_modulation );
+                  i_frequency, i_inversion,
+                  psz_modulation == NULL ? "qam_auto" : psz_modulation );
             break;
 
          default:
@@ -1064,7 +1086,7 @@ if ( i_diff & (x) )                                                 \
 
       i_last_status = (fe_status_t) 0;
 
-      if (libcLdvb::i_frontend_timeout_duration)
+      if (i_frontend_timeout_duration)
          cLev_timer_again(libcLdvb::event_loop, &lock_watcher);
    }
 
@@ -1087,10 +1109,10 @@ if ( i_diff & (x) )                                                 \
       switch ( info.type )
       {
          case FE_OFDM:
-            fep.frequency = libcLdvb::i_frequency;
+            fep.frequency = i_frequency;
             fep.inversion = INVERSION_AUTO;
 
-            switch ( libcLdvb::i_bandwidth )
+            switch ( i_bandwidth )
             {
                case 6: fep.u.ofdm.bandwidth = BANDWIDTH_6_MHZ; break;
                case 7: fep.u.ofdm.bandwidth = BANDWIDTH_7_MHZ; break;
@@ -1106,37 +1128,37 @@ if ( i_diff & (x) )                                                 \
             fep.u.ofdm.hierarchy_information = HIERARCHY_AUTO;
 
             cLbugf(cL::dbg_dvb, "tuning OFDM frontend to f=%d, bandwidth=%d\n",
-                  libcLdvb::i_frequency, libcLdvb::i_bandwidth );
+                  i_frequency, i_bandwidth );
             break;
 
                case FE_QAM:
-                  fep.frequency = libcLdvb::i_frequency;
+                  fep.frequency = i_frequency;
                   fep.inversion = INVERSION_AUTO;
-                  fep.u.qam.symbol_rate = libcLdvb::i_srate;
+                  fep.u.qam.symbol_rate = i_srate;
                   fep.u.qam.fec_inner = FEC_AUTO;
                   fep.u.qam.modulation = QAM_AUTO;
 
                   cLbugf(cL::dbg_dvb, "tuning QAM frontend to f=%d, srate=%d\n",
-                        libcLdvb::i_frequency, libcLdvb::i_srate );
+                        i_frequency, i_srate );
                   break;
 
                case FE_QPSK:
                   fep.inversion = INVERSION_AUTO;
-                  fep.u.qpsk.symbol_rate = libcLdvb::i_srate;
+                  fep.u.qpsk.symbol_rate = i_srate;
                   fep.u.qpsk.fec_inner = FEC_AUTO;
                   fep.frequency = FrontendDoDiseqc();
 
                   cLbugf(cL::dbg_dvb, "tuning QPSK frontend to f=%d, srate=%d\n",
-                        libcLdvb::i_frequency, libcLdvb::i_srate );
+                        i_frequency, i_srate );
                   break;
 
 #if DVBAPI_VERSION >= 301
                case FE_ATSC:
-                  fep.frequency = libcLdvb::i_frequency;
+                  fep.frequency = i_frequency;
 
                   fep.u.vsb.modulation = QAM_AUTO;
 
-                  cLbugf(cL::dbg_dvb, "tuning ATSC frontend to f=%d\n", libcLdvb::i_frequency );
+                  cLbugf(cL::dbg_dvb, "tuning ATSC frontend to f=%d\n", i_frequency );
                   break;
 #endif
 
@@ -1163,7 +1185,7 @@ if ( i_diff & (x) )                                                 \
 
       i_last_status = 0;
 
-      if (libcLdvb::i_frontend_timeout_duration)
+      if (i_frontend_timeout_duration)
          cLev_timer_again(libcLdvb::event_loop, &lock_watcher);
    }
 

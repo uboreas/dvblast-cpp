@@ -44,6 +44,8 @@ namespace libcLdvbasi {
 #define ASI_BUFSIZE_FILE "/sys/class/asi/asirx%u/bufsize"
 #define ASI_LOCK_TIMEOUT 5000000 /* 5 s */
 
+   int i_asi_adapter = 0;
+
    static int i_handle;
    static struct cLev_io asi_watcher;
    static struct cLev_timer mute_watcher;
@@ -118,25 +120,25 @@ namespace libcLdvbasi {
       char psz_dev[MAXLEN];
 
       /* No timestamp - we wouldn't know what to do with them */
-      if ( WriteULSysfs( ASI_TIMESTAMPS_FILE, libcLdvb::i_asi_adapter, 0 ) < 0 ) {
-         cLbugf(cL::dbg_dvb, "couldn't write file " ASI_TIMESTAMPS_FILE "\n", libcLdvb::i_asi_adapter);
+      if ( WriteULSysfs( ASI_TIMESTAMPS_FILE, i_asi_adapter, 0 ) < 0 ) {
+         cLbugf(cL::dbg_dvb, "couldn't write file " ASI_TIMESTAMPS_FILE "\n", i_asi_adapter);
          exit(EXIT_FAILURE);
       }
 
-      if ( (i_bufsize = ReadULSysfs( ASI_BUFSIZE_FILE, libcLdvb::i_asi_adapter )) < 0 ) {
-         cLbugf(cL::dbg_dvb, "couldn't read file " ASI_BUFSIZE_FILE "\n", libcLdvb::i_asi_adapter );
+      if ( (i_bufsize = ReadULSysfs( ASI_BUFSIZE_FILE, i_asi_adapter )) < 0 ) {
+         cLbugf(cL::dbg_dvb, "couldn't read file " ASI_BUFSIZE_FILE "\n", i_asi_adapter );
          exit(EXIT_FAILURE);
       }
 
       if ( i_bufsize % TS_SIZE ) {
-         cLbugf(cL::dbg_dvb, ASI_BUFSIZE_FILE " must be a multiple of 188\n", libcLdvb::i_asi_adapter );
+         cLbugf(cL::dbg_dvb, ASI_BUFSIZE_FILE " must be a multiple of 188\n", i_asi_adapter );
          exit(EXIT_FAILURE);
       }
 
-      snprintf( psz_dev, sizeof(psz_dev), ASI_DEVICE, libcLdvb::i_asi_adapter );
+      snprintf( psz_dev, sizeof(psz_dev), ASI_DEVICE, i_asi_adapter );
       psz_dev[sizeof(psz_dev) - 1] = '\0';
       if ( (i_handle = open( psz_dev, O_RDONLY, 0 )) < 0 ) {
-         cLbugf(cL::dbg_dvb, "couldn't open device " ASI_DEVICE " (%s)\n", libcLdvb::i_asi_adapter, strerror(errno) );
+         cLbugf(cL::dbg_dvb, "couldn't open device " ASI_DEVICE " (%s)\n", i_asi_adapter, strerror(errno) );
          exit(EXIT_FAILURE);
       }
 
@@ -196,7 +198,7 @@ namespace libcLdvbasi {
       if ( (i_len = readv(i_handle, p_iov, i_bufsize / TS_SIZE)) < 0 )
       {
          cLbugf(cL::dbg_dvb, "couldn't read from device " ASI_DEVICE " (%s)\n",
-               libcLdvb::i_asi_adapter, strerror(errno) );
+               i_asi_adapter, strerror(errno) );
          i_len = 0;
       }
       i_len /= TS_SIZE;

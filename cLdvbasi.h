@@ -261,6 +261,8 @@ namespace libcLdvbasi {
 #define ASI_CTL_TRANSPORT_DVB_ASI	0
 #define ASI_CTL_TRANSPORT_SMPTE_310M	1
 
+   extern int i_asi_adapter;
+
    extern void asi_Open( void );
    extern void asi_Reset( void );
    extern int asi_SetFilter( uint16_t i_pid );

@@ -31,6 +31,9 @@
 #ifdef HAVE_CLMACOS
 #include <sys/uio.h>
 #endif
+#ifdef HAVE_CLICONV
+#include <iconv.h>
+#endif
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -43,24 +46,32 @@ namespace libcLdvboutput {
 
    static struct cLev_timer output_watcher;
    static libcLdvb::mtime_t i_next_send = INT64_MAX;
+
    libcLdvb::mtime_t i_wallclock = 0;
    int b_random_tsid = 0;
    bool b_do_remap = false;
    output_t output_dup;
    static block_t *p_block_lifo = (block_t *) 0;
    static unsigned int i_block_count = 0;
+
    output_t **pp_outputs = (output_t **) 0;
    int i_nb_outputs = 0;
-   /*static*/ bool b_udp_global = false;
-   /*static*/ bool b_dvb_global = false;
-   /*static*/ bool b_epg_global = false;
-   /*static*/ libcLdvb::mtime_t i_latency_global = DEFAULT_OUTPUT_LATENCY;
-   /*static*/ libcLdvb::mtime_t i_retention_global = DEFAULT_MAX_RETENTION;
-   /*static*/ int i_ttl_global = 64;
+   const char *psz_dvb_charset = "UTF-8";
+   bool b_udp_global = false;
+   bool b_dvb_global = false;
+   bool b_epg_global = false;
+   libcLdvb::mtime_t i_latency_global = DEFAULT_OUTPUT_LATENCY;
+   libcLdvb::mtime_t i_retention_global = DEFAULT_MAX_RETENTION;
+   int i_ttl_global = 64;
    uint8_t pi_ssrc_global[4] = { 0, 0, 0, 0 };
-   /*static*/ dvb_string_t network_name;
-   /*static*/ dvb_string_t provider_name;
-   /*static*/ uint16_t i_network_id = 0xffff;
+   dvb_string_t network_name;
+   dvb_string_t provider_name;
+   uint16_t i_network_id = 0xffff;
+
+#ifdef HAVE_CLICONV
+   iconv_t conf_iconv = (iconv_t)-1;
+   iconv_t iconv_handle = (iconv_t)-1;
+#endif
 
    static uint8_t p_pad_ts[TS_SIZE] = {
          0x47, 0x1f, 0xff, 0x10, 0xff, 0xff, 0xff, 0xff,
@@ -270,14 +281,14 @@ namespace libcLdvboutput {
    {
       char *psz_input = config_stropt(psz_string);
 
-      if ( !strcasecmp( libcLdvb::psz_native_charset, libcLdvb::psz_dvb_charset ) )
+      if ( !strcasecmp( libcLdvb::psz_native_charset, psz_dvb_charset ) )
          return psz_input;
 
 #ifdef HAVE_CLICONV
-      if ( libcLdvb::conf_iconv == (iconv_t)-1 )
+      if ( conf_iconv == (iconv_t)-1 )
       {
-         libcLdvb::conf_iconv = iconv_open( libcLdvb::psz_dvb_charset, libcLdvb::psz_native_charset );
-         if ( libcLdvb::conf_iconv == (iconv_t)-1 )
+         conf_iconv = iconv_open( psz_dvb_charset, libcLdvb::psz_native_charset );
+         if ( conf_iconv == (iconv_t)-1 )
             return psz_input;
       }
 
@@ -285,7 +296,7 @@ namespace libcLdvboutput {
       size_t i_output = i_input * 6;
       char *psz_output = cLmalloc(char, i_output);
       char *p = psz_output;
-      if ((long )iconv( libcLdvb::conf_iconv, &psz_input, &i_input, &p, &i_output ) == -1 )
+      if ((long )iconv( conf_iconv, &psz_input, &i_input, &p, &i_output ) == -1 )
       {
          free( psz_output );
          return psz_input;
@@ -295,7 +306,7 @@ namespace libcLdvboutput {
       return psz_output;
 #else
       cLbugf(cL::dbg_dvb, "unable to convert from %s to %s (iconv is not available)\n",
-            libcLdvb::psz_native_charset, libcLdvb::psz_dvb_charset );
+            libcLdvb::psz_native_charset, psz_dvb_charset );
       return psz_input;
 #endif
    }
@@ -311,7 +322,7 @@ namespace libcLdvboutput {
 
       char *psz_iconv = config_striconv(psz_string);
       dvb_string_clean(p_dvb_string);
-      p_dvb_string->p = dvb_string_set((uint8_t *)psz_iconv, strlen(psz_iconv), libcLdvb::psz_dvb_charset, &p_dvb_string->i);
+      p_dvb_string->p = dvb_string_set((uint8_t *)psz_iconv, strlen(psz_iconv), psz_dvb_charset, &p_dvb_string->i);
    }
 
 
@@ -1124,7 +1135,74 @@ namespace libcLdvboutput {
       }
 
       free( pp_outputs );
+
+#ifdef HAVE_CLICONV
+      if (iconv_handle != (iconv_t)-1) {
+         iconv_close(iconv_handle);
+         iconv_handle = (iconv_t)-1;
+      }
+      if (conf_iconv != (iconv_t)-1 ) {
+         iconv_close( conf_iconv );
+         conf_iconv = (iconv_t)-1;
+      }
+#endif
+
    }
+
+   static char *iconv_append_null(const char *p_string, size_t i_length)
+      {
+         char *psz_string = cLmalloc(char, i_length + 1);
+         memcpy(psz_string, p_string, i_length);
+         psz_string[i_length] = '\0';
+         return psz_string;
+      }
+
+      char *iconv_cb(void *_unused, const char *psz_encoding, char *p_string, size_t i_length)
+      {
+   #ifdef HAVE_CLICONV
+         static const char *psz_current_encoding = "";
+
+         char *psz_string, *p;
+         size_t i_out_length;
+
+         if (!strcmp(psz_encoding, libcLdvb::psz_native_charset))
+            return iconv_append_null(p_string, i_length);
+
+         if (iconv_handle != (iconv_t)-1 &&
+               strcmp(psz_encoding, psz_current_encoding)) {
+            iconv_close(iconv_handle);
+            iconv_handle = (iconv_t)-1;
+         }
+
+         if (iconv_handle == (iconv_t)-1)
+            iconv_handle = iconv_open(libcLdvb::psz_native_charset, psz_encoding);
+         if (iconv_handle == (iconv_t)-1) {
+            cLbugf(cL::dbg_dvb, "couldn't open converter from %s to %s\n", psz_encoding,
+                  libcLdvb::psz_native_charset);
+            return iconv_append_null(p_string, i_length);
+         }
+         psz_current_encoding = psz_encoding;
+
+         /* converted strings can be up to six times larger */
+         i_out_length = i_length * 6;
+         p = psz_string = cLmalloc(char, i_out_length);
+         if ((long)iconv(iconv_handle, &p_string, &i_length, &p, &i_out_length) == -1) {
+            cLbugf(cL::dbg_dvb, "couldn't convert from %s to %s\n", psz_encoding,
+                  libcLdvb::psz_native_charset);
+            free(psz_string);
+            return iconv_append_null(p_string, i_length);
+         }
+         if (i_length)
+            cLbugf(cL::dbg_dvb, "partial conversion from %s to %s\n", psz_encoding,
+                  libcLdvb::psz_native_charset);
+
+         *p = '\0';
+         return psz_string;
+   #else
+         return iconv_append_null(p_string, i_length);
+   #endif
+      }
+
 
 } /* namespace libcLdvboutput */
 

@@ -3,7 +3,7 @@
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
  *****************************************************************************
- * demux.c
+ * demux.c, util.c, dvblast.c
  *****************************************************************************
  * Copyright (C) 2004, 2008-2011, 2015 VideoLAN
  *
@@ -82,6 +82,19 @@ namespace libcLdvbdemux {
    } sid_t;
 
    libcLdvb::mtime_t i_wallclock = 0;
+   const char *psz_conf_file = (const char *) 0;
+   bool b_enable_emm = false;
+   bool b_enable_ecm = false;
+   libcLdvb::mtime_t i_es_timeout = 0;
+   int b_budget_mode = 0;
+   int b_select_pmts = 0;
+   int b_any_type = 0;
+   uint16_t pi_newpids[CLDVB_N_MAP_PIDS];  /* pmt, audio, video, spu */
+
+   fdev_openCB pf_Open = 0;
+   fdev_resetCB pf_Reset = 0;
+   fdev_setfilterCB pf_SetFilter = 0;
+   fdev_unsetfilterCB pf_UnsetFilter = 0;
 
    static ts_pid_t p_pids[MAX_PIDS];
    static sid_t **pp_sids = NULL;
@@ -136,6 +149,13 @@ namespace libcLdvbdemux {
    static void HandlePSIPacket( uint8_t *p_ts, libcLdvb::mtime_t i_dts );
    static const char *get_pid_desc(uint16_t i_pid, uint16_t *i_sid);
 
+   void debug_cb(void *p, const char *fmt, ...)
+   {
+      cLpf(fmt, tbuf, nump);
+      cLbugf(cL::dbg_dvb, "%s\n", tbuf);
+      ::free(tbuf);
+   }
+
    /*
     * Remap an ES pid to a fixed value.
     * Multiple streams of the same type use sequential pids
@@ -160,7 +180,7 @@ namespace libcLdvbdemux {
          case 0x81: /* ATSC AC-3 */
          case 0x87: /* ATSC Enhanced AC-3 */
             if ( libcLdvboutput::b_do_remap )
-               i_newpid = libcLdvb::pi_newpids[libcLdvbdemux::I_APID];
+               i_newpid = pi_newpids[libcLdvbdemux::I_APID];
             else
                i_newpid = p_output->config.pi_confpids[libcLdvbdemux::I_APID];
             break;
@@ -169,7 +189,7 @@ namespace libcLdvbdemux {
          case 0x10: /* video MPEG-4 */
          case 0x1b: /* video H264 */
             if ( libcLdvboutput::b_do_remap )
-               i_newpid = libcLdvb::pi_newpids[libcLdvbdemux::I_VPID];
+               i_newpid = pi_newpids[libcLdvbdemux::I_VPID];
             else
                i_newpid = p_output->config.pi_confpids[libcLdvbdemux::I_VPID];
             break;
@@ -195,7 +215,7 @@ namespace libcLdvbdemux {
             if (SubStreamType==libcLdvbdemux::I_APID) {
                cLbug(cL::dbg_dvb, "REMAP: PES Private Data stream identified as [Audio]\n");
                if ( libcLdvboutput::b_do_remap )
-                  i_newpid = libcLdvb::pi_newpids[libcLdvbdemux::I_APID];
+                  i_newpid = pi_newpids[libcLdvbdemux::I_APID];
                else
                   i_newpid = p_output->config.pi_confpids[libcLdvbdemux::I_APID];
             }
@@ -203,7 +223,7 @@ namespace libcLdvbdemux {
             if (SubStreamType==libcLdvbdemux::I_SPUPID) {
                cLbug(cL::dbg_dvb, "REMAP: PES Private Data stream identified as [Subtitle]\n");
                if ( libcLdvboutput::b_do_remap )
-                  i_newpid = libcLdvb::pi_newpids[libcLdvbdemux::I_SPUPID];
+                  i_newpid = pi_newpids[libcLdvbdemux::I_SPUPID];
                else
                   i_newpid = p_output->config.pi_confpids[libcLdvbdemux::I_SPUPID];
             }
@@ -290,7 +310,7 @@ namespace libcLdvbdemux {
 
       memset( p_pids, 0, sizeof(p_pids) );
 
-      libcLdvb::pf_Open();
+      pf_Open();
 
       for ( i = 0; i < MAX_PIDS; i++ )
       {
@@ -301,15 +321,15 @@ namespace libcLdvbdemux {
          p_pids[i].i_pes_status = -1;
       }
 
-      if ( libcLdvb::b_budget_mode )
-         i_demux_fd = libcLdvb::pf_SetFilter(8192);
+      if ( b_budget_mode )
+         i_demux_fd = pf_SetFilter(8192);
 
       psi_table_init( pp_current_pat_sections );
       psi_table_init( pp_next_pat_sections );
       SetPID(PAT_PID);
       p_pids[PAT_PID].i_psi_refcount++;
 
-      if ( libcLdvb::b_enable_emm )
+      if ( b_enable_emm )
       {
          psi_table_init( pp_current_cat_sections );
          psi_table_init( pp_next_cat_sections );
@@ -465,10 +485,10 @@ namespace libcLdvbdemux {
       {
          i_tuner_errors = 0;
          cLbug(cL::dbg_dvb, "too many transport errors, tuning again\n" );
-         libcLdvb::pf_Reset();
+         pf_Reset();
       }
 
-      if ( libcLdvb::i_es_timeout )
+      if ( i_es_timeout )
       {
          int i_pes_status = -1;
          if ( ts_get_scrambling( p_ts->p_ts ) )
@@ -490,8 +510,8 @@ namespace libcLdvbdemux {
                if ( i_pid != TDT_PID )
                {
                   cLev_timer_init( &p_pid->timeout_watcher, PrintESCb,
-                        libcLdvb::i_es_timeout / 1000000.,
-                        libcLdvb::i_es_timeout / 1000000. );
+                        i_es_timeout / 1000000.,
+                        i_es_timeout / 1000000. );
                   cLev_timer_start( libcLdvb::event_loop, &p_pid->timeout_watcher );
                }
                else
@@ -521,7 +541,7 @@ namespace libcLdvbdemux {
          else if ( p_pid->i_psi_refcount )
             HandlePSIPacket( p_ts->p_ts, p_ts->i_dts );
 
-         if ( libcLdvb::b_enable_emm && p_pid->b_emm )
+         if ( b_enable_emm && p_pid->b_emm )
             SendEMM( p_ts );
       }
 
@@ -831,9 +851,9 @@ namespace libcLdvbdemux {
    {
       p_pids[i_pid].i_refcount++;
 
-      if ( !libcLdvb::b_budget_mode && p_pids[i_pid].i_refcount
+      if ( !b_budget_mode && p_pids[i_pid].i_refcount
             && p_pids[i_pid].i_demux_fd == -1 )
-         p_pids[i_pid].i_demux_fd = libcLdvb::pf_SetFilter( i_pid );
+         p_pids[i_pid].i_demux_fd = pf_SetFilter( i_pid );
    }
 
    static void SetPID_EMM( uint16_t i_pid )
@@ -846,10 +866,10 @@ namespace libcLdvbdemux {
    {
       p_pids[i_pid].i_refcount--;
 
-      if ( !libcLdvb::b_budget_mode && !p_pids[i_pid].i_refcount
+      if ( !b_budget_mode && !p_pids[i_pid].i_refcount
             && p_pids[i_pid].i_demux_fd != -1 )
       {
-         libcLdvb::pf_UnsetFilter( p_pids[i_pid].i_demux_fd, i_pid );
+         pf_UnsetFilter( p_pids[i_pid].i_demux_fd, i_pid );
          p_pids[i_pid].i_demux_fd = -1;
          p_pids[i_pid].b_emm = false;
       }
@@ -938,7 +958,7 @@ namespace libcLdvbdemux {
       p_pids[i_pid].i_psi_refcount++;
       p_pids[i_pid].b_pes = false;
 
-      if ( libcLdvb::b_select_pmts )
+      if ( b_select_pmts )
          SetPID( i_pid );
       else for ( i = 0; i < libcLdvboutput::i_nb_outputs; i++ )
          if ( (libcLdvboutput::pp_outputs[i]->config.i_config & OUTPUT_VALID)
@@ -955,7 +975,7 @@ namespace libcLdvbdemux {
          psi_assemble_reset( &p_pids[i_pid].p_psi_buffer,
                &p_pids[i_pid].i_psi_buffer_used );
 
-      if ( libcLdvb::b_select_pmts )
+      if ( b_select_pmts )
          UnsetPID( i_pid );
       else for ( i = 0; i < libcLdvboutput::i_nb_outputs; i++ )
          if ( (libcLdvboutput::pp_outputs[i]->config.i_config & OUTPUT_VALID)
@@ -1133,7 +1153,7 @@ namespace libcLdvbdemux {
       int i_pmt_pid = p_sid->i_pmt_pid;
 
       if ( libcLdvboutput::b_do_remap )
-         i_pmt_pid = libcLdvb::pi_newpids[ libcLdvbdemux::I_PMTPID ];
+         i_pmt_pid = pi_newpids[ libcLdvbdemux::I_PMTPID ];
 
       for ( i = 0; i < libcLdvboutput::i_nb_outputs; i++ )
       {
@@ -1327,8 +1347,8 @@ namespace libcLdvbdemux {
       }
 
       if ( libcLdvboutput::b_do_remap ) {
-         cLbugf(cL::dbg_dvb, "Mapping PMT PID %d to %d\n", patn_get_pid( p_program ), libcLdvb::pi_newpids[libcLdvbdemux::I_PMTPID] );
-         patn_set_pid( p, libcLdvb::pi_newpids[libcLdvbdemux::I_PMTPID]);
+         cLbugf(cL::dbg_dvb, "Mapping PMT PID %d to %d\n", patn_get_pid( p_program ), pi_newpids[libcLdvbdemux::I_PMTPID] );
+         patn_set_pid( p, pi_newpids[libcLdvbdemux::I_PMTPID]);
       } else if ( p_output->config.b_do_remap && p_output->config.pi_confpids[libcLdvbdemux::I_PMTPID] ) {
          cLbugf(cL::dbg_dvb, "Mapping PMT PID %d to %d\n", patn_get_pid( p_program ), p_output->config.pi_confpids[libcLdvbdemux::I_PMTPID] );
          patn_set_pid( p, p_output->config.pi_confpids[libcLdvbdemux::I_PMTPID]);
@@ -1357,7 +1377,7 @@ namespace libcLdvbdemux {
          uint8_t i_tag = desc_get_tag( p_current_desc );
 
          j++;
-         if ( !libcLdvb::b_enable_ecm && i_tag == 0x9 ) continue;
+         if ( !b_enable_ecm && i_tag == 0x9 ) continue;
 
          p_desc = descs_get_desc( p_descs, k );
          if ( p_desc == NULL ) continue; /* This shouldn't happen */
@@ -1719,7 +1739,7 @@ namespace libcLdvbdemux {
     *****************************************************************************/
    static bool PIDWouldBeSelected( uint8_t *p_es )
    {
-      if ( libcLdvb::b_any_type ) return true;
+      if ( b_any_type ) return true;
 
       uint8_t i_type = pmtn_get_streamtype( p_es );
 
@@ -1893,7 +1913,7 @@ namespace libcLdvbdemux {
                && i_pcr_pid != p_sid->i_pmt_pid )
             UnselectPID( i_sid, i_pcr_pid );
 
-         if ( libcLdvb::b_enable_ecm )
+         if ( b_enable_ecm )
          {
             j = 0;
 
@@ -1915,7 +1935,7 @@ namespace libcLdvbdemux {
             if ( PIDWouldBeSelected( p_es ) )
                UnselectPID( i_sid, i_pid );
 
-            if ( libcLdvb::b_enable_ecm )
+            if ( b_enable_ecm )
             {
                uint8_t k = 0;
 
@@ -2059,7 +2079,7 @@ namespace libcLdvbdemux {
          psi_table_free( pp_old_pat_sections );
       }
 
-      pat_table_print( pp_current_pat_sections, libcLdvb::debug_cb, NULL, PRINT_TEXT );
+      pat_table_print( pp_current_pat_sections, debug_cb, NULL, PRINT_TEXT );
 
       out_pat:
       SendPAT( i_dts );
@@ -2176,7 +2196,7 @@ namespace libcLdvbdemux {
          psi_table_free( pp_old_cat_sections );
       }
 
-      cat_table_print( pp_current_cat_sections, libcLdvb::debug_cb, NULL, PRINT_TEXT );
+      cat_table_print( pp_current_cat_sections, debug_cb, NULL, PRINT_TEXT );
 
       out_cat:
       return;
@@ -2208,7 +2228,7 @@ namespace libcLdvbdemux {
 
       uint16_t i_pcr_pid = pmt_get_pcrpid( p_pmt );
 
-      if ( libcLdvb::b_enable_ecm )
+      if ( b_enable_ecm )
       {
          j = 0;
          while ( (p_desc = descs_get_desc( pmt_get_descs( p_pmt ), j++ )) != NULL )
@@ -2233,7 +2253,7 @@ namespace libcLdvbdemux {
 
          p_pids[i_pid].b_pes = PIDCarriesPES( p_es );
 
-         if ( libcLdvb::b_enable_ecm )
+         if ( b_enable_ecm )
          {
             k = 0;
             while ( (p_desc = descs_get_desc( pmtn_get_descs( p_es ), k++ )) != NULL )
@@ -2339,7 +2359,7 @@ namespace libcLdvbdemux {
 
       UpdatePMT( i_sid );
 
-      pmt_print( p_pmt, libcLdvb::debug_cb, NULL, libcLdvb::str_iv, NULL, PRINT_TEXT );
+      pmt_print( p_pmt, debug_cb, NULL, libcLdvboutput::iconv_cb, NULL, PRINT_TEXT );
 
       out_pmt:
       SendPMT( p_sid, i_dts );
@@ -2372,7 +2392,7 @@ namespace libcLdvbdemux {
       psi_table_copy( pp_current_nit_sections, pp_next_nit_sections );
       psi_table_init( pp_next_nit_sections );
 
-      nit_table_print( pp_current_nit_sections, libcLdvb::debug_cb, NULL, libcLdvb::str_iv, NULL, PRINT_TEXT );
+      nit_table_print( pp_current_nit_sections, debug_cb, NULL, libcLdvboutput::iconv_cb, NULL, PRINT_TEXT );
 
       out_nit:
       ;
@@ -2473,7 +2493,7 @@ namespace libcLdvbdemux {
          psi_table_free( pp_old_sdt_sections );
       }
 
-      sdt_table_print( pp_current_sdt_sections, libcLdvb::debug_cb, NULL, libcLdvb::str_iv, NULL, PRINT_TEXT );
+      sdt_table_print( pp_current_sdt_sections, debug_cb, NULL, libcLdvboutput::iconv_cb, NULL, PRINT_TEXT );
 
       out_sdt:
       SendSDT( i_dts );
@@ -2553,7 +2573,7 @@ namespace libcLdvbdemux {
             break;
 
          case CAT_TABLE_ID:
-            if ( libcLdvb::b_enable_emm )
+            if ( b_enable_emm )
                HandleCATSection( i_pid, p_section, i_dts );
             break;
 
@@ -2707,7 +2727,7 @@ namespace libcLdvbdemux {
       }
 
       /* Detect EMM pids */
-      if ( libcLdvb::b_enable_emm && psi_table_validate( pp_current_cat_sections ) )
+      if ( b_enable_emm && psi_table_validate( pp_current_cat_sections ) )
       {
          i_last_section = psi_table_get_lastsection( pp_current_cat_sections );
          for ( i = 0; i <= i_last_section; i++ )
@@ -2791,28 +2811,133 @@ namespace libcLdvbdemux {
    }
 
    /*****************************************************************************
+    * psi_pack_section: return psi section
+    *  Note: Allocates the return value. The caller must free it.
+    *****************************************************************************/
+   uint8_t *psi_pack_section(uint8_t *p_section, unsigned int *pi_size)
+   {
+      uint8_t *p_flat_section;
+      uint16_t psi_length = psi_get_length(p_section) + PSI_HEADER_SIZE;
+      *pi_size = 0;
+
+      p_flat_section = cLmalloc(uint8_t, psi_length);
+      if (!p_flat_section)
+         return (uint8_t *) 0;
+
+      *pi_size = psi_length;
+      memcpy(p_flat_section, p_section, psi_length);
+
+      return p_flat_section;
+   }
+
+   /*****************************************************************************
+    * psi_pack_sections: return psi sections as array
+    *  Note: Allocates the return value. The caller must free it.
+    *****************************************************************************/
+   uint8_t *psi_pack_sections(uint8_t **pp_sections, unsigned int *pi_size)
+   {
+      uint8_t i_last_section;
+      uint8_t *p_flat_section;
+      unsigned int i, i_pos = 0;
+
+      if (!psi_table_validate(pp_sections))
+         return (uint8_t *) 0;
+
+      i_last_section = psi_table_get_lastsection(pp_sections);
+
+      /* Calculate total size */
+      *pi_size = 0;
+      for (i = 0; i <= i_last_section; i++) {
+         uint8_t *p_section = psi_table_get_section(pp_sections, i);
+         *pi_size += psi_get_length(p_section) + PSI_HEADER_SIZE;
+      }
+
+      p_flat_section = cLmalloc(uint8_t, *pi_size);
+      if (!p_flat_section)
+         return (uint8_t *) 0;
+
+      for (i = 0; i <= i_last_section; i++) {
+         uint8_t *p_section = psi_table_get_section(pp_sections, i);
+         uint16_t psi_length = psi_get_length(p_section) + PSI_HEADER_SIZE;
+         memcpy(p_flat_section + i_pos, p_section, psi_length);
+         i_pos += psi_length;
+      }
+
+      return p_flat_section;
+   }
+
+   /*****************************************************************************
+    * psi_unpack_sections: return psi sections
+    *  Note: Allocates psi_table, the result must be psi_table_free()'ed
+    *****************************************************************************/
+   uint8_t **psi_unpack_sections(uint8_t *p_flat_sections, unsigned int i_size)
+   {
+      uint8_t **pp_sections;
+      unsigned int i, i_offset = 0;
+
+      pp_sections = psi_table_allocate();
+      if (!pp_sections) {
+         cLbugf(cL::dbg_dvb, "%s: cannot allocate PSI table\n", __func__);
+         return (uint8_t **) 0;
+      }
+
+      psi_table_init(pp_sections);
+
+      for (i = 0; i < PSI_TABLE_MAX_SECTIONS; i++) {
+         uint8_t *p_section = p_flat_sections + i_offset;
+         uint16_t i_section_len = psi_get_length(p_section) + PSI_HEADER_SIZE;
+         if (!psi_validate(p_section)) {
+            cLbugf(cL::dbg_dvb, "%s: Invalid section %d\n", __func__, i);
+            psi_table_free(pp_sections);
+            return (uint8_t **) 0;
+         }
+
+         /* Must use allocated section not p_flat_section + offset directly! */
+         uint8_t *p_section_local = psi_private_allocate();
+         if (!p_section_local) {
+            cLbugf(cL::dbg_dvb, "%s: cannot allocate PSI private\n", __func__);
+            psi_table_free(pp_sections);
+            return (uint8_t **) 0;
+         }
+         memcpy(p_section_local, p_section, i_section_len);
+
+         /* We ignore the return value of psi_table_section(), because it is useless
+              in this case. We are building the table section by section and when we have
+              more than one section in a table, psi_table_section() returns false when section
+              0 is added.  */
+         psi_table_section(pp_sections, p_section_local);
+
+         i_offset += i_section_len;
+         if (i_offset >= i_size - 1)
+            break;
+      }
+
+      return pp_sections;
+   }
+
+   /*****************************************************************************
     * Functions that return packed sections
     *****************************************************************************/
    uint8_t *demux_get_current_packed_PAT( unsigned int *pi_pack_size ) {
-      return libcLdvb::psi_pack_sections( pp_current_pat_sections, pi_pack_size );
+      return psi_pack_sections( pp_current_pat_sections, pi_pack_size );
    }
 
    uint8_t *demux_get_current_packed_CAT( unsigned int *pi_pack_size ) {
-      return libcLdvb::psi_pack_sections( pp_current_cat_sections, pi_pack_size );
+      return psi_pack_sections( pp_current_cat_sections, pi_pack_size );
    }
 
    uint8_t *demux_get_current_packed_NIT( unsigned int *pi_pack_size ) {
-      return libcLdvb::psi_pack_sections( pp_current_nit_sections, pi_pack_size );
+      return psi_pack_sections( pp_current_nit_sections, pi_pack_size );
    }
 
    uint8_t *demux_get_current_packed_SDT( unsigned int *pi_pack_size ) {
-      return libcLdvb::psi_pack_sections( pp_current_sdt_sections, pi_pack_size );
+      return psi_pack_sections( pp_current_sdt_sections, pi_pack_size );
    }
 
    uint8_t *demux_get_packed_PMT( uint16_t i_sid, unsigned int *pi_pack_size ) {
       sid_t *p_sid = FindSID( i_sid );
       if ( p_sid != NULL && p_sid->p_current_pmt && pmt_validate( p_sid->p_current_pmt ) )
-         return libcLdvb::psi_pack_section( p_sid->p_current_pmt, pi_pack_size );
+         return psi_pack_section( p_sid->p_current_pmt, pi_pack_size );
       return NULL;
    }
 
@@ -2833,15 +2958,15 @@ namespace libcLdvbdemux {
       char psz_line[2048];
       int i;
 
-      if ( libcLdvb::psz_conf_file == NULL )
+      if ( psz_conf_file == NULL )
       {
          cLbug(cL::dbg_dvb, "no config file\n" );
          return;
       }
 
-      if ( (fopen(p_file, libcLdvb::psz_conf_file, "r" )) == NULL )
+      if ( (fopen(p_file, psz_conf_file, "r" )) == NULL )
       {
-         cLbugf(cL::dbg_dvb, "can't fopen config file %s\n", libcLdvb::psz_conf_file );
+         cLbugf(cL::dbg_dvb, "can't fopen config file %s\n", psz_conf_file );
          return;
       }
 

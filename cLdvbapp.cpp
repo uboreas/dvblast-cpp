@@ -25,8 +25,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#include <cLdvbmrtgcnt.h>
 #include <cLdvboutput.h>
+#include <cLdvbmrtgcnt.h>
+#include <cLdvben50221.h>
 #include <cLdvbdemux.h>
 #include <cLdvbev.h>
 #ifdef HAVE_CLDVBHW
@@ -82,20 +83,22 @@ namespace libcLdvbapp {
       }
    }
 
+#ifdef HAVE_CLDVBHW
    //struct ev_timer *
    static void quit_cb(void *loop, void *w, int revents)
    {
       cLev_break(loop, 2); //EVBREAK_ALL
    }
+#endif
 
    int start(const char *netname, const char *proname)
    {
       struct sched_param param;
       int i_error;
       struct cLev_signal sigint_watcher, sigterm_watcher, sighup_watcher;
+#ifdef HAVE_CLDVBHW
       struct cLev_timer quit_watcher;
-
-      libcLdvb::begin();
+#endif
 
       if ( libcLdvboutput::b_udp_global ) {
          cLbug(cL::dbg_dvb, "raw UDP output is deprecated.  Please consider using RTP.\n" );
@@ -154,10 +157,12 @@ namespace libcLdvbapp {
       if ( libcLdvbcomm::psz_srv_socket != NULL )
           libcLdvbcomm::comm_Open();
 
-      if ( libcLdvb::i_quit_timeout_duration ) {
-         cLev_timer_init(&quit_watcher, libcLdvbapp::quit_cb, libcLdvb::i_quit_timeout_duration / 1000000., 0);
+#ifdef HAVE_CLDVBHW
+      if ( libcLdvbdev::i_quit_timeout_duration ) {
+         cLev_timer_init(&quit_watcher, libcLdvbapp::quit_cb, libcLdvbdev::i_quit_timeout_duration / 1000000., 0);
          cLev_timer_start(libcLdvb::event_loop, &quit_watcher);
       }
+#endif
 
       libcLdvboutput::outputs_Init();
 
@@ -172,8 +177,6 @@ namespace libcLdvbapp {
 
       libcLdvbcomm::comm_Close();
       libcLdvboutput::block_Vacuum();
-
-      libcLdvb::end();
 
       return 0;
    }
@@ -273,8 +276,9 @@ namespace libcLdvbapp {
       cLbug(cL::dbg_dvb, "  -i --priority <RT priority>\n");
       cLbug(cL::dbg_dvb, "  -j --system-charset   character set used for printing messages (default UTF-8)\n");
       cLbug(cL::dbg_dvb, "  -J --dvb-charset      character set used in output DVB tables (default UTF-8)\n");
-      cLbug(cL::dbg_dvb, "  -q --quiet            be quiet (less verbosity, repeat or use number for even quieter)\n");
+#ifdef HAVE_CLDVBHW
       cLbug(cL::dbg_dvb, "  -Q --quit-timeout     when locked, quit after this delay (in ms), or after the first lock timeout\n");
+#endif
       cLbug(cL::dbg_dvb, "  -6 --print-period     periodicity at which we print bitrate and errors (in ms)\n");
       cLbug(cL::dbg_dvb, "  -7 --es-timeout       time of inactivy before which a PID is reported down (in ms)\n");
       cLbug(cL::dbg_dvb, "  -Z --mrtg-file <file> Log input packets and errors into mrtg-file\n");
@@ -346,7 +350,6 @@ namespace libcLdvbapp {
             { "quit-timeout",    required_argument, NULL, 'Q' },
             { "print-period",    required_argument, NULL, '6' },
             { "es-timeout",      required_argument, NULL, '7' },
-            { "quiet",           no_argument,       NULL, 'q' },
             { "help",            no_argument,       NULL, 'h' },
             { "version",         no_argument,       NULL, 'V' },
             { "mrtg-file",       required_argument, NULL, 'Z' },
@@ -356,23 +359,16 @@ namespace libcLdvbapp {
             { 0, 0, 0, 0 }
       };
 
-      while ((c = getopt_long(i_argc, pp_argv, "q::c:r:t:o:i:a:n:5:f:F:R:s:S:k:v:pb:I:m:P:K:G:H:X:O:uwUTL:E:d:3D:A:zCWYeM:N:j:J:B:Q:6:7:hVZ:y:0:1:2:", long_options, NULL)) != -1) {
+      while ((c = getopt_long(i_argc, pp_argv, "c:r:t:o:i:a:n:5:f:F:R:s:S:k:v:pb:I:m:P:K:G:H:X:O:uwUTL:E:d:3D:A:zCWYeM:N:j:J:B:Q:6:7:hVZ:y:0:1:2:", long_options, NULL)) != -1) {
          switch (c) {
-            case 'q':
-               if (optarg) {
-                  if (*optarg == 'q') {  /* e.g. -qqq */
-                     while ( *optarg == 'q' ) { optarg++; }
-                  }
-               }
-               break;
             case 'c':
-               libcLdvb::psz_conf_file = optarg;
+               libcLdvbdemux::psz_conf_file = optarg;
                /*
                 * When configuration file is used it is reasonable to assume that
                 * services may be added/removed. If libcLdvb::b_select_pmts is not set dvblast
                 * is unable to start streaming newly added services in the config.
                 */
-               libcLdvb::b_select_pmts = 1;
+               libcLdvbdemux::b_select_pmts = 1;
                break;
             case 'r':
                 libcLdvbcomm::psz_srv_socket = optarg;
@@ -390,92 +386,101 @@ namespace libcLdvbapp {
             case 'i':
                i_priority = strtol( optarg, NULL, 0 );
                break;
+#ifdef HAVE_CLDVBHW
             case 'a':
                libcLdvb::i_adapter = strtol( optarg, NULL, 0 );
                break;
-            case 'n':
-               libcLdvb::i_fenum = strtol( optarg, NULL, 0 );
-               break;
             case 'y':
-               libcLdvb::i_canum = strtol( optarg, NULL, 0 );
+               libcLdvben50221::i_canum = strtol( optarg, NULL, 0 );
+               break;
+            case 'n':
+               libcLdvbdev::i_fenum = strtol( optarg, NULL, 0 );
                break;
             case '5':
-               libcLdvb::psz_delsys = optarg;
+               libcLdvbdev::psz_delsys = optarg;
                break;
             case 'f':
                if (optarg && optarg[0] != '-')
-                  libcLdvb::i_frequency = strtol( optarg, NULL, 0 );
-               if ( libcLdvb::pf_Open != NULL )
+                  libcLdvbdev::i_frequency = strtol( optarg, NULL, 0 );
+               if ( libcLdvbdemux::pf_Open != NULL )
                   return cliusage();
-#ifdef HAVE_CLDVBHW
-               libcLdvb::pf_Open = libcLdvbdev::dvb_Open;
-               libcLdvb::pf_Reset = libcLdvbdev::dvb_Reset;
-               libcLdvb::pf_SetFilter = libcLdvbdev::dvb_SetFilter;
-               libcLdvb::pf_UnsetFilter = libcLdvbdev::dvb_UnsetFilter;
-               libcLdvb::pf_ResendCAPMTs = libcLdvbdemux::demux_ResendCAPMTs;
-               libcLdvb::pf_PIDIsSelected = libcLdvbdemux::demux_PIDIsSelected;
-#else
-               cLbug(cL::dbg_dvb, "DVBlast is compiled without DVB support.\n");
-               return 1;
-#endif
+               libcLdvbdemux::pf_Open = libcLdvbdev::dvb_Open;
+               libcLdvbdemux::pf_Reset = libcLdvbdev::dvb_Reset;
+               libcLdvbdemux::pf_SetFilter = libcLdvbdev::dvb_SetFilter;
+               libcLdvbdemux::pf_UnsetFilter = libcLdvbdev::dvb_UnsetFilter;
+               libcLdvben50221::pf_ResendCAPMTs = libcLdvbdemux::demux_ResendCAPMTs;
+               libcLdvben50221::pf_PIDIsSelected = libcLdvbdemux::demux_PIDIsSelected;
                break;
             case 'F':
-               libcLdvb::i_fec = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_fec = strtol( optarg, NULL, 0 );
                break;
             case 'R':
-               libcLdvb::i_rolloff = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_rolloff = strtol( optarg, NULL, 0 );
                break;
             case 's':
-               libcLdvb::i_srate = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_srate = strtol( optarg, NULL, 0 );
                break;
             case 'S':
-               libcLdvb::i_satnum = strtol( optarg, NULL, 16 );
+               libcLdvbdev::i_satnum = strtol( optarg, NULL, 16 );
                break;
             case 'k':
-               libcLdvb::i_uncommitted = strtol( optarg, NULL, 16 );
+               libcLdvbdev::i_uncommitted = strtol( optarg, NULL, 16 );
                break;
             case 'v':
-               libcLdvb::i_voltage = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_voltage = strtol( optarg, NULL, 0 );
                break;
             case 'p':
-               libcLdvb::b_tone = 1;
+               libcLdvbdev::b_tone = 1;
                break;
             case 'b':
-               libcLdvb::i_bandwidth = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_bandwidth = strtol( optarg, NULL, 0 );
                break;
             case 'I':
-               libcLdvb::i_inversion = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_inversion = strtol( optarg, NULL, 0 );
                break;
             case 'm':
-               libcLdvb::psz_modulation = optarg;
+               libcLdvbdev::psz_modulation = optarg;
                break;
             case 'P':
-               libcLdvb::i_pilot = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_pilot = strtol( optarg, NULL, 0 );
                break;
             case '1':
-               libcLdvb::i_mis = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_mis = strtol( optarg, NULL, 0 );
                break;
             case 'K':
-               libcLdvb::i_fec_lp = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_fec_lp = strtol( optarg, NULL, 0 );
                break;
             case 'G':
-               libcLdvb::i_guard = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_guard = strtol( optarg, NULL, 0 );
                break;
             case 'X':
-               libcLdvb::i_transmission = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_transmission = strtol( optarg, NULL, 0 );
                break;
             case 'O':
-               libcLdvb::i_frontend_timeout_duration = strtoll( optarg, NULL, 0 ) * 1000;
+               libcLdvbdev::i_frontend_timeout_duration = strtoll( optarg, NULL, 0 ) * 1000;
                break;
             case 'H':
-               libcLdvb::i_hierarchy = strtol( optarg, NULL, 0 );
+               libcLdvbdev::i_hierarchy = strtol( optarg, NULL, 0 );
+               break;
+            case 'Q':
+               libcLdvbdev::i_quit_timeout_duration = strtoll( optarg, NULL, 0 ) * 1000;
+               break;
+            case '2':
+               i_dvr_buffer_size = strtol( optarg, NULL, 0 );
+               if (!i_dvr_buffer_size)
+                  return cliusage();   // it exits
+               /* roundup to packet size */
+               i_dvr_buffer_size += TS_SIZE - 1;
+               i_dvr_buffer_size /= TS_SIZE;
+               i_dvr_buffer_size *= TS_SIZE;
                break;
             case 'u':
-               libcLdvb::b_budget_mode = 1;
+               libcLdvbdemux::b_budget_mode = 1;
                break;
             case 'w':
-               libcLdvb::b_select_pmts = !libcLdvb::b_select_pmts;
+               libcLdvbdemux::b_select_pmts = !libcLdvbdemux::b_select_pmts;
                break;
+#endif
             case 'U':
                libcLdvboutput::b_udp_global = true;
                break;
@@ -492,43 +497,40 @@ namespace libcLdvbapp {
                break;
             case 'D':
                libcLdvbudp::psz_udp_src = optarg;
-               if ( libcLdvb::pf_Open != NULL )
+               if ( libcLdvbdemux::pf_Open != NULL )
                   return cliusage();
-               libcLdvb::pf_Open = libcLdvbudp::udp_Open;
-               libcLdvb::pf_Reset = libcLdvbudp::udp_Reset;
-               libcLdvb::pf_SetFilter = libcLdvbudp::udp_SetFilter;
-               libcLdvb::pf_UnsetFilter = libcLdvbudp::udp_UnsetFilter;
+               libcLdvbdemux::pf_Open = libcLdvbudp::udp_Open;
+               libcLdvbdemux::pf_Reset = libcLdvbudp::udp_Reset;
+               libcLdvbdemux::pf_SetFilter = libcLdvbudp::udp_SetFilter;
+               libcLdvbdemux::pf_UnsetFilter = libcLdvbudp::udp_UnsetFilter;
                break;
-            case 'A':
 #ifdef HAVE_CLASIHW
-               if ( libcLdvb::pf_Open != NULL )
+            case 'A':
+               if ( libcLdvbdemux::pf_Open != NULL )
                   return cliusage();
                if ( strncmp(optarg, "deltacast:", 10) == 0) {
                   cLbug(cL::dbg_dvb, "DVBlast is compiled without Deltacast ASI support.\n");
                   return 1;
                } else {
-                  libcLdvb::i_asi_adapter = strtol( optarg, NULL, 0 );
-                  libcLdvb::pf_Open = libcLdvbasi::asi_Open;
-                  libcLdvb::pf_Reset = libcLdvbasi::asi_Reset;
-                  libcLdvb::pf_SetFilter = libcLdvbasi::asi_SetFilter;
-                  libcLdvb::pf_UnsetFilter = libcLdvbasi::asi_UnsetFilter;
+                  libcLdvbasi::i_asi_adapter = strtol( optarg, NULL, 0 );
+                  libcLdvbdemux::pf_Open = libcLdvbasi::asi_Open;
+                  libcLdvbdemux::pf_Reset = libcLdvbasi::asi_Reset;
+                  libcLdvbdemux::pf_SetFilter = libcLdvbasi::asi_SetFilter;
+                  libcLdvbdemux::pf_UnsetFilter = libcLdvbasi::asi_UnsetFilter;
                }
-#else
-               cLbug(cL::dbg_dvb, "DVBlast is compiled without ASI support.\n");
-               return 1;
-#endif
                break;
+#endif
             case 'z':
-               libcLdvb::b_any_type = 1;
+               libcLdvbdemux::b_any_type = 1;
                break;
             case 'C':
                libcLdvboutput::b_dvb_global = true;
                break;
             case 'W':
-               libcLdvb::b_enable_emm = true;
+               libcLdvbdemux::b_enable_emm = true;
                break;
             case 'Y':
-               libcLdvb::b_enable_ecm = true;
+               libcLdvbdemux::b_enable_ecm = true;
                break;
             case 'e':
                libcLdvboutput::b_epg_global = true;
@@ -546,7 +548,7 @@ namespace libcLdvbapp {
                libcLdvb::psz_native_charset = optarg;
                break;
             case 'J':
-               libcLdvb::psz_dvb_charset = optarg;
+               libcLdvboutput::psz_dvb_charset = optarg;
                break;
             case 'B':
                psz_provider_name = optarg;
@@ -554,14 +556,11 @@ namespace libcLdvbapp {
             case 'g':
                psz_syslog_ident = optarg;
                break;
-            case 'Q':
-               libcLdvb::i_quit_timeout_duration = strtoll( optarg, NULL, 0 ) * 1000;
-               break;
             case '6':
                libcLdvb::i_print_period = strtoll( optarg, NULL, 0 ) * 1000;
                break;
             case '7':
-               libcLdvb::i_es_timeout = strtoll( optarg, NULL, 0 ) * 1000;
+               libcLdvbdemux::i_es_timeout = strtoll( optarg, NULL, 0 ) * 1000;
                break;
             case 'V':
                cliversion();
@@ -586,28 +585,17 @@ namespace libcLdvbapp {
                      cLbug(cL::dbg_dvb, "Invalid pidmap string\n" );
                      return cliusage();
                   }
-                  libcLdvb::pi_newpids[i] = i_newpid;
+                  libcLdvbdemux::pi_newpids[i] = i_newpid;
                }
                libcLdvboutput::b_do_remap = true;
                break;
             }
-#ifdef HAVE_CLDVBHW
-            case '2':
-               i_dvr_buffer_size = strtol( optarg, NULL, 0 );
-               if (!i_dvr_buffer_size)
-                  return cliusage();	// it exits
-               /* roundup to packet size */
-               i_dvr_buffer_size += TS_SIZE - 1;
-               i_dvr_buffer_size /= TS_SIZE;
-               i_dvr_buffer_size *= TS_SIZE;
-               break;
-#endif
             case 'h':
             default:
                return cliusage();
          }
       }
-      if ( optind < i_argc || libcLdvb::pf_Open == NULL )
+      if ( optind < i_argc || libcLdvbdemux::pf_Open == NULL )
          return cliusage();
 
       cliversion();
@@ -616,27 +604,25 @@ namespace libcLdvbapp {
       return start(psz_network_name, psz_provider_name);
    }
 
-   //run(1, 1, 12015000, 27500000, 13, "/tmp/.ntvturkiyepaket.dvb", (const char *) 0)
    int run(int priority, int adapter, int freq, int srate, int volt, const char *configfile)
    {
-      libcLdvb::psz_conf_file = configfile;
-      libcLdvb::b_select_pmts = 1;
+      libcLdvbdemux::psz_conf_file = configfile;
+      libcLdvbdemux::b_select_pmts = 1;
       i_priority = priority;
 
       libcLdvb::i_adapter = adapter;
-      libcLdvb::i_frequency = freq;
 
 #ifdef HAVE_CLDVBHW
-      libcLdvb::pf_Open = libcLdvbdev::dvb_Open;
-      libcLdvb::pf_Reset = libcLdvbdev::dvb_Reset;
-      libcLdvb::pf_SetFilter = libcLdvbdev::dvb_SetFilter;
-      libcLdvb::pf_UnsetFilter = libcLdvbdev::dvb_UnsetFilter;
-      libcLdvb::pf_ResendCAPMTs = libcLdvbdemux::demux_ResendCAPMTs;
-      libcLdvb::pf_PIDIsSelected = libcLdvbdemux::demux_PIDIsSelected;
+      libcLdvbdev::i_frequency = freq;
+      libcLdvbdemux::pf_Open = libcLdvbdev::dvb_Open;
+      libcLdvbdemux::pf_Reset = libcLdvbdev::dvb_Reset;
+      libcLdvbdemux::pf_SetFilter = libcLdvbdev::dvb_SetFilter;
+      libcLdvbdemux::pf_UnsetFilter = libcLdvbdev::dvb_UnsetFilter;
+      libcLdvben50221::pf_ResendCAPMTs = libcLdvbdemux::demux_ResendCAPMTs;
+      libcLdvben50221::pf_PIDIsSelected = libcLdvbdemux::demux_PIDIsSelected;
+      libcLdvbdev::i_srate = srate;
+      libcLdvbdev::i_voltage = volt;
 #endif
-
-      libcLdvb::i_srate = srate;
-      libcLdvb::i_voltage = volt;
 
       return start("cLdvb http://kylone.com/", "Kylone");
    }

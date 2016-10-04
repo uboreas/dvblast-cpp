@@ -51,6 +51,15 @@ namespace libcLdvben50221 {
       RET_HUH                 = 255,
    } ctl_cmd_answer_t;
 
+   typedef void (*fdev_ResendCAPMTsCB)(void);
+   typedef bool (*fdev_PIDIsSelectedCB)(uint16_t);
+
+   extern int i_ca_handle;
+   extern int i_ca_type;
+   extern int i_canum;
+   extern fdev_ResendCAPMTsCB pf_ResendCAPMTs;
+   extern fdev_PIDIsSelectedCB pf_PIDIsSelected;
+
 #ifdef HAVE_CLDVBHW
 
 #define STRINGIFY(z) UGLY_KLUDGE(z)
@@ -111,9 +120,6 @@ namespace libcLdvben50221 {
 
 #define MAX_CI_SLOTS 16
 #define MAX_SESSIONS 32
-
-   extern int i_ca_handle;
-   extern int i_ca_type;
 
    /*****************************************************************************
     * Prototypes
@@ -228,8 +234,6 @@ namespace libcLdvben50221 {
 
 #else //HAVE_CLDVBHW
 
-   extern int i_ca_handle;
-   extern int i_ca_type;
    extern void en50221_Init( void );
    extern void en50221_AddPMT( uint8_t *p_pmt );
    extern void en50221_UpdatePMT( uint8_t *p_pmt );

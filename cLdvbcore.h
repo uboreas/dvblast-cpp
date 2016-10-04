@@ -3,7 +3,7 @@
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
  *****************************************************************************
- * config.h, dvblast.h
+ * config.h, dvblast.h, util.c
  *****************************************************************************
  * Copyright (C) 2004, 2008-2011, 2015 VideoLAN
  *
@@ -36,10 +36,6 @@
 #endif
 
 #include <cLcommon.h>
-
-#ifdef HAVE_CLICONV
-#include <iconv.h>
-#endif
 
 #define DVB_VERSION                 "3.0"
 #define DVB_VERSION_MAJOR           3
@@ -95,79 +91,13 @@ namespace libcLdvb {
 
    typedef int64_t mtime_t;
 
-   extern const char *psz_conf_file;
-   extern const char *psz_dvb_charset;
-
-#ifdef HAVE_CLICONV
-   extern iconv_t conf_iconv;
-   extern iconv_t iconv_handle;
-#endif
-
    extern const char *psz_native_charset;
-   /*core*/ extern void *event_loop;
-   extern int i_frequency;
-
-   extern uint16_t pi_newpids[CLDVB_N_MAP_PIDS];
+   extern void *event_loop;
    extern mtime_t i_print_period;
-
-   extern bool b_enable_emm;
-   extern bool b_enable_ecm;
-   extern mtime_t i_es_timeout;
-   extern int b_budget_mode;
-   extern int b_select_pmts;
-   extern int b_any_type;
-
    extern int i_adapter;
-   extern int i_fenum;
-   extern int i_canum;
 
-   extern mtime_t i_frontend_timeout_duration;
-   extern mtime_t i_quit_timeout_duration;
-
-   extern int i_voltage;
-   extern int b_tone;
-   extern int i_bandwidth;
-   extern int i_inversion;
-   extern int i_srate;
-   extern int i_fec;
-   extern int i_rolloff;
-   extern int i_satnum;
-   extern int i_uncommitted;
-   extern char *psz_modulation;
-
-   extern char *psz_delsys;
-   extern int i_pilot;
-   extern int i_mis;
-   extern int i_fec_lp;
-   extern int i_guard;
-   extern int i_transmission;
-   extern int i_hierarchy;
-
-   extern int i_asi_adapter;
-
-   extern void (*pf_Open)( void );
-   extern void (*pf_Reset)( void );
-   extern int (*pf_SetFilter)( uint16_t i_pid );
-   extern void (*pf_UnsetFilter)( int i_fd, uint16_t i_pid );
-   extern void (*pf_ResendCAPMTs)(void);
-   extern bool (*pf_PIDIsSelected)(uint16_t i_pid);
-
-   extern bool streq(char *a, char *b);
-   extern char *xstrdup(char *str);
-
-   /*out*/ extern mtime_t mdate( void );
+   extern mtime_t mdate( void );
    extern void msleep( mtime_t delay );
-   extern void hexDump( uint8_t *p_data, uint32_t i_len );
-
-   extern uint8_t *psi_pack_section( uint8_t *p_sections, unsigned int *pi_size );
-   extern uint8_t *psi_pack_sections( uint8_t **pp_sections, unsigned int *pi_size );
-   extern uint8_t **psi_unpack_sections( uint8_t *p_flat_sections, unsigned int i_size );
-
-   extern void debug_cb(void *p, const char *fmt, ... );
-   extern char *str_iv(void *_unused, const char *psz_encoding, char *p_string, size_t i_length);
-
-   extern void begin();
-   extern void end();
 
 } /* namespace libcLdvb */
 
