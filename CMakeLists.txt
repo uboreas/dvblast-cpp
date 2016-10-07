@@ -66,7 +66,7 @@ if (HAVE_CLDVBHW)
 endif (HAVE_CLDVBHW)
 set (_cLsrc
    ${_cLsrc}
-   cLdvbcomm.cpp
+#  cLdvbcomm.cpp
    cLdvbapp.cpp
    dvblastpp.cpp
 )

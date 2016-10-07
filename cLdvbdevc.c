@@ -2,6 +2,7 @@
  * cLdvbdevc.c
  * Gokhan Poyraz <gokhan@kylone.com>
  *
+ * Based on code from:
  *****************************************************************************
  * dvb.c: linux-dvb input for DVBlast
  *****************************************************************************

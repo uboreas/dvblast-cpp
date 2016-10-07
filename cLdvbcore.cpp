@@ -2,8 +2,9 @@
  * cLdvbcore.cpp
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
+ * Based on code from:
  *****************************************************************************
- * dvblast.c, util.c
+ * util.c
  *****************************************************************************
  * Copyright (C) 2004, 2008-2011, 2015 VideoLAN
  *
@@ -33,53 +34,60 @@
 #ifdef HAVE_CLMACOS
 #include <sys/time.h>
 #endif
+#include <unistd.h>
 
-namespace libcLdvb {
+cLdvbobj::cLdvbobj()
+{
+   this->psz_native_charset = "UTF-8";
+   this->psz_mrtg_file = (char *) 0;
+   this->event_loop = (void *) 0;
+   this->i_print_period = (mtime_t) 0;
+   this->i_priority = -1;
+   this->i_adapter = 0;
+   srand((unsigned int)(time(0) * getpid()));
+   cLbug(cL::dbg_high, "cLdvbobj created\n");
+}
 
-   const char *psz_native_charset = "UTF-8";
-   void *event_loop = (void *) 0;
-   mtime_t i_print_period = 0;
-   int i_adapter = 0;
+cLdvbobj::~cLdvbobj()
+{
+   cLbug(cL::dbg_high, "cLdvbobj deleted\n");
+}
 
-   mtime_t mdate(void)
-   {
-      mtime_t rc = 0;
-#if defined (HAVE_CLOCK_NANOSLEEP)
-      struct timespec ts;
-      /* Try to use POSIX monotonic clock if available */
-      if( clock_gettime(CLOCK_MONOTONIC, &ts ) == EINVAL)
-         /* Run-time fallback to real-time clock (always available) */
-         (void)clock_gettime( CLOCK_REALTIME, &ts);
-      rc = (mtime_t)((ts.tv_sec * 1000000) + (ts.tv_nsec / 1000));
+cLdvbobj::mtime_t cLdvbobj::mdate(void)
+{
+   mtime_t rc = 0;
+#ifdef HAVE_CLOCK_NANOSLEEP
+   struct timespec ts;
+   /* Try to use POSIX monotonic clock if available */
+   if( clock_gettime(CLOCK_MONOTONIC, &ts ) == EINVAL)
+      /* Run-time fallback to real-time clock (always available) */
+      (void)clock_gettime( CLOCK_REALTIME, &ts);
+   rc = (mtime_t)((ts.tv_sec * 1000000) + (ts.tv_nsec / 1000));
 #else
-      struct timeval tv_date;
-      /* gettimeofday() could return an error, and should be tested. However, the
-       * only possible error, according to 'man', is EFAULT, which can not happen
-       * here, since tv is a local variable. */
-      gettimeofday(&tv_date, (void *) 0);
-      rc = (mtime_t)((tv_date.tv_sec * 1000000) + tv_date.tv_usec);
+   struct timeval tv_date;
+   /* gettimeofday() could return an error, and should be tested. However, the
+    * only possible error, according to 'man', is EFAULT, which can not happen
+    * here, since tv is a local variable. */
+   gettimeofday(&tv_date, 0);
+   rc = (mtime_t)((tv_date.tv_sec * 1000000) + tv_date.tv_usec);
 #endif
-      return rc;
-   }
+   return rc;
+}
 
-   void msleep(mtime_t delay)
-   {
-      struct timespec ts;
+void cLdvbobj::msleep(mtime_t delay)
+{
+   struct timespec ts;
+   ts.tv_sec = delay / 1000000;
+   ts.tv_nsec = (delay % 1000000) * 1000;
+#ifdef HAVE_CLOCK_NANOSLEEP
+   int val;
+   while ((val = clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, &ts)) == EINTR);
+   if (val == EINVAL) {
       ts.tv_sec = delay / 1000000;
       ts.tv_nsec = (delay % 1000000) * 1000;
-
-#if defined( HAVE_CLOCK_NANOSLEEP )
-      int val;
-      while ((val = clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, &ts)) == EINTR);
-      if (val == EINVAL) {
-         ts.tv_sec = delay / 1000000;
-         ts.tv_nsec = (delay % 1000000) * 1000;
-         while (clock_nanosleep(CLOCK_REALTIME, 0, &ts, &ts) == EINTR);
-      }
-#else
-      while (nanosleep(&ts, &ts) && errno == EINTR);
-#endif
+      while (clock_nanosleep(CLOCK_REALTIME, 0, &ts, &ts) == EINTR);
    }
-
-
-} /* namespace libcLdvb */
+#else
+   while (nanosleep(&ts, &ts) && errno == EINTR);
+#endif
+}

@@ -2,6 +2,7 @@
  * cLdvbcomm.cpp
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
+ * Based on code from:
  *****************************************************************************
  * comm.c: Handles the communication socket
  *****************************************************************************

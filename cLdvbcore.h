@@ -2,6 +2,7 @@
  * cLdvbcore.h
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
+ * Based on code from:
  *****************************************************************************
  * config.h, dvblast.h, util.c
  *****************************************************************************
@@ -36,6 +37,8 @@
 #endif
 
 #include <cLcommon.h>
+
+//#define HAVE_CLDVBHW
 
 #define DVB_VERSION                 "3.0"
 #define DVB_VERSION_MAJOR           3
@@ -74,6 +77,13 @@
 #define CLDVB_MAX_BLOCKS            500
 #define CLDVB_N_MAP_PIDS            4
 
+#define CLDVB_OUTPUT_MAX_PACKETS    100
+
+// Define the dump period in seconds
+#define CLDVB_MRTG_INTERVAL   1
+#define CLDVB_MRTG_PIDS       0x2000
+
+
 #ifdef HAVE_CLLINUX
 #define HAVE_CLOCK_NANOSLEEP
 #endif
@@ -87,19 +97,40 @@
 #define container_of(ptr, type, member) ({const typeof(((type *)0)->member)*_mptr = (ptr); (type *)((char *)_mptr - offsetof(type, member));})
 #endif
 
-namespace libcLdvb {
+class cLdvbobj {
+   public:
+      typedef int64_t mtime_t;
 
-   typedef int64_t mtime_t;
+   protected:
+      const char *psz_native_charset;
+      char *psz_mrtg_file;
+      mtime_t i_print_period;
+      int i_priority, i_adapter;
 
-   extern const char *psz_native_charset;
-   extern void *event_loop;
-   extern mtime_t i_print_period;
-   extern int i_adapter;
+   public:
+      void *event_loop;
 
-   extern mtime_t mdate( void );
-   extern void msleep( mtime_t delay );
+      inline void set_charset(const char *s) {
+         this->psz_native_charset = s;
+      }
+      inline void set_mrtg_file(char *s) {
+         this->psz_mrtg_file = s;
+      }
+      inline void set_print_period(mtime_t i) {
+         this->i_print_period = i;
+      }
+      inline void set_priority(int i) {
+         this->i_priority = i;
+      }
+      inline void set_adapter(int a) {
+         this->i_adapter = a;
+      }
 
-} /* namespace libcLdvb */
+      static mtime_t mdate(void);
+      static void msleep(mtime_t delay);
+      cLdvbobj();
+      ~cLdvbobj();
+};
 
 #endif /*CLDVB_H_*/
 

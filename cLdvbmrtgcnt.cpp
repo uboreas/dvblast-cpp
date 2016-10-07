@@ -2,6 +2,7 @@
  * cLdvbmrtgcnt.cpp
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
+ * Based on code from:
  *****************************************************************************
  * mrtg-cnt.c Handle dvb TS packets and count them for MRTG
  *****************************************************************************
@@ -29,162 +30,157 @@
 #include <sys/time.h>
 #include <string.h>
 
-namespace libcLdvbmrtgcnt {
-
-   // File handle
-   static FILE *mrtg_fh = NULL;
-
-   // Counts
-   static long long l_mrtg_packets = 0;            // Packets received
-   static long long l_mrtg_seq_err_packets = 0;    // Out of sequence packets received
-   static long long l_mrtg_error_packets = 0;      // Packets received with the error flag set
-   static long long l_mrtg_scram_packets = 0;      // Scrambled Packets received
-
-   // Reporting timer
-#if defined( WIN32 )
-   static LARGE_INTEGER mrtg_time;
-   static LARGE_INTEGER mrtg_inc;
-#else
-   static struct timeval mrtg_time = { 0, 0 };
+cLdvbmrtgcnt::cLdvbmrtgcnt()
+{
+   this->mrtg_fh = (FILE *) 0;
+   this->l_mrtg_packets = 0;            // Packets received
+   this->l_mrtg_seq_err_packets = 0;    // Out of sequence packets received
+   this->l_mrtg_error_packets = 0;      // Packets received with the error flag set
+   this->l_mrtg_scram_packets = 0;      // Scrambled Packets received
+#ifndef HAVE_CLWIN32
+   this->mrtg_time.tv_sec = 0;
+   this->mrtg_time.tv_usec = 0;
 #endif
+   cLbug(cL::dbg_high, "cLdvbmrtgcnt created\n");
+}
 
-   // Pid sequence numbers
-#define PIDS    0x2000
-   static signed char i_pid_seq[PIDS];
+cLdvbmrtgcnt::~cLdvbmrtgcnt()
+{
+   cLbug(cL::dbg_high, "cLdvbmrtgcnt deleted\n");
+}
 
-   // Report the mrtg counters: bytes received, error packets & sequence errors
-   static void dumpCounts()
-   {
-      unsigned int multiplier = 1;        //CLDVB_MRTG_INTERVAL;
-      if(mrtg_fh) {
-         rewind(mrtg_fh);
-         fprintf(mrtg_fh, "%lld %lld %lld %lld\n",
-               l_mrtg_packets * 188 * multiplier,
-               l_mrtg_error_packets * multiplier,
-               l_mrtg_seq_err_packets * multiplier,
-               l_mrtg_scram_packets * multiplier);
-         fflush(mrtg_fh);
-      }
+// Report the mrtg counters: bytes received, error packets & sequence errors
+void cLdvbmrtgcnt::dumpCounts()
+{
+   unsigned int multiplier = CLDVB_MRTG_INTERVAL;
+   if (this->mrtg_fh) {
+      rewind(this->mrtg_fh);
+      fprintf(this->mrtg_fh, "%lld %lld %lld %lld\n",
+            this->l_mrtg_packets * 188 * multiplier,
+            this->l_mrtg_error_packets * multiplier,
+            this->l_mrtg_seq_err_packets * multiplier,
+            this->l_mrtg_scram_packets * multiplier
+      );
+      fflush(this->mrtg_fh);
    }
+}
 
-   // analyse the input block counting packets and errors
-   // The input is a pointer to a libcLdvboutput::block_t structure, which might be a linked list
-   // of blocks. Each block has one TS packet.
-   void mrtgAnalyse(libcLdvboutput::block_t * p_ts)
-   {
-      unsigned int i_pid;
-      libcLdvboutput::block_t *p_block = p_ts;
+// analyse the input block counting packets and errors
+// The input is a pointer to a cLdvboutput::block_t structure, which might be a linked list
+// of blocks. Each block has one TS packet.
+void cLdvbmrtgcnt::mrtgAnalyse(cLdvboutput::block_t *p_ts)
+{
+   unsigned int i_pid;
+   cLdvboutput::block_t *p_block = p_ts;
 
-      if (mrtg_fh == NULL) return;
+   if (this->mrtg_fh == (FILE *) 0)
+      return;
 
-      while (p_block != NULL) {
-         uint8_t *ts_packet = p_block->p_ts;
+   while (p_block != (cLdvboutput::block_t *) 0) {
+      uint8_t *ts_packet = p_block->p_ts;
 
-         char i_seq, i_last_seq;
-         l_mrtg_packets++;
+      char i_seq, i_last_seq;
+      ++this->l_mrtg_packets;
 
-         if (ts_packet[0] != 0x47) {
-            l_mrtg_error_packets++;
-            p_block = p_block->p_next;
-            continue;
-         }
-
-         if (ts_packet[1] & 0x80) {
-            l_mrtg_error_packets++;
-            p_block = p_block->p_next;
-            continue;
-         }
-
-         i_pid = (ts_packet[1] & 0x1f) << 8 | ts_packet[2];
-
-         // Just count null packets - don't check the sequence numbering
-         if (i_pid == 0x1fff) {
-            p_block = p_block->p_next;
-            continue;
-         }
-
-         if (ts_packet[3] & 0xc0) {
-            l_mrtg_scram_packets++;
-         }
-         // Check the sequence numbering
-         i_seq = ts_packet[3] & 0xf;
-         i_last_seq = i_pid_seq[i_pid];
-
-         if (i_last_seq == -1) {
-            // First packet - ignore the sequence
-         } else if (ts_packet[3] & 0x10) {
-            // Packet contains payload - sequence should be up by one
-            if (i_seq != ((i_last_seq + 1) & 0x0f)) {
-               l_mrtg_seq_err_packets++;
-            }
-         } else {
-            // Packet contains no payload - sequence should be unchanged
-            if (i_seq != i_last_seq) {
-               l_mrtg_seq_err_packets++;
-            }
-         }
-         i_pid_seq[i_pid] = i_seq;
-
-         // Look at next block
+      if (ts_packet[0] != 0x47) {
+         ++l_mrtg_error_packets;
          p_block = p_block->p_next;
+         continue;
       }
 
-      // All blocks processed. See if we need to dump the stats
-      struct timeval now;
-      gettimeofday(&now, NULL);
-      if (timercmp(&now, &mrtg_time, >)) {
-         // Time to report the mrtg counters
-         dumpCounts();
-
-         // Set the timer for next time
-         //
-         // Normally we add the interval to the previous time so that if one
-         // dump is a bit late, the next one still occurs at the correct time.
-         // However, if there is a long gap (e.g. because the channel has
-         // stopped for some time), then just rebase the timing to the current
-         // time.  I've chosen CLDVB_MRTG_INTERVAL as the long gap - this is arbitary
-         if ((now.tv_sec - mrtg_time.tv_sec) > CLDVB_MRTG_INTERVAL) {
-            cLbugf(cL::dbg_dvb, "Dump is %d seconds late - reset timing\n",
-                  (int) (now.tv_sec - mrtg_time.tv_sec));
-            mrtg_time = now;
-         }
-         mrtg_time.tv_sec += CLDVB_MRTG_INTERVAL;
+      if (ts_packet[1] & 0x80) {
+         ++l_mrtg_error_packets;
+         p_block = p_block->p_next;
+         continue;
       }
+
+      i_pid = (ts_packet[1] & 0x1f) << 8 | ts_packet[2];
+
+      // Just count null packets - don't check the sequence numbering
+      if (i_pid == 0x1fff) {
+         p_block = p_block->p_next;
+         continue;
+      }
+
+      if (ts_packet[3] & 0xc0)
+         ++l_mrtg_scram_packets;
+
+      // Check the sequence numbering
+      i_seq = ts_packet[3] & 0xf;
+      i_last_seq = i_pid_seq[i_pid];
+
+      if (i_last_seq == -1) {
+         // First packet - ignore the sequence
+      } else
+      if (ts_packet[3] & 0x10) {
+         // Packet contains payload - sequence should be up by one
+         if (i_seq != ((i_last_seq + 1) & 0x0f))
+            ++l_mrtg_seq_err_packets;
+      } else {
+         // Packet contains no payload - sequence should be unchanged
+         if (i_seq != i_last_seq)
+            ++l_mrtg_seq_err_packets;
+      }
+      i_pid_seq[i_pid] = i_seq;
+
+      // Look at next block
+      p_block = p_block->p_next;
    }
 
-   int mrtgInit(char *mrtg_file)
-   {
-      if ( !mrtg_file )
-         return -1;
+   // All blocks processed. See if we need to dump the stats
+   struct timeval now;
+   gettimeofday(&now, (struct timezone *) 0);
+   if (timercmp(&now, &this->mrtg_time, >)) {
+      // Time to report the mrtg counters
+      this->dumpCounts();
 
-      /* Open MRTG file */
-      cLbugf(cL::dbg_dvb, "Opening mrtg file %s.\n", mrtg_file);
-      if ((fopen(mrtg_fh, mrtg_file, "wb")) == NULL) {
-         cLbug(cL::dbg_dvb, "unable to open mrtg file");
-         return -1;
+      // Set the timer for next time
+      //
+      // Normally we add the interval to the previous time so that if one
+      // dump is a bit late, the next one still occurs at the correct time.
+      // However, if there is a long gap (e.g. because the channel has
+      // stopped for some time), then just rebase the timing to the current
+      // time.  I've chosen CLDVB_MRTG_INTERVAL as the long gap - this is arbitary
+      if ((now.tv_sec - this->mrtg_time.tv_sec) > CLDVB_MRTG_INTERVAL) {
+         cLbugf(cL::dbg_dvb, "Dump is %d seconds late - reset timing\n", (int)(now.tv_sec - this->mrtg_time.tv_sec));
+         this->mrtg_time = now;
       }
-      // Initialise the file
-      fprintf(mrtg_fh, "0 0 0 0\n");
-      fflush(mrtg_fh);
-
-      // Initialise the sequence numbering
-      memset(&i_pid_seq[0], -1, sizeof(signed char) * PIDS);
-
-      // Set the reporting timer
-      gettimeofday(&mrtg_time, NULL);
-      mrtg_time.tv_sec += CLDVB_MRTG_INTERVAL;
-
-      return 0;
+      this->mrtg_time.tv_sec += CLDVB_MRTG_INTERVAL;
    }
+}
 
-   void mrtgClose()
-   {
-      // This is only for testing when using filetest.
-      if (mrtg_fh) {
-         dumpCounts();
-         fclose(mrtg_fh);
-         mrtg_fh = NULL;
-      }
+int cLdvbmrtgcnt::mrtgInit(const char *mrtg_file)
+{
+   if (mrtg_file == (const char *) 0)
+      return -1;
+
+   /* Open MRTG file */
+   cLbugf(cL::dbg_dvb, "Opening mrtg file %s.\n", mrtg_file);
+   if ((fopen(this->mrtg_fh, mrtg_file, "wb")) == (FILE *) 0) {
+      cLbug(cL::dbg_dvb, "unable to open mrtg file");
+      return -1;
    }
+   // Initialise the file
+   fprintf(this->mrtg_fh, "0 0 0 0\n");
+   fflush(this->mrtg_fh);
 
-} /* namespace libcLdvbmrtgcnt */
+   // Initialise the sequence numbering
+   memset(&i_pid_seq[0], -1, sizeof(signed char) * CLDVB_MRTG_PIDS);
+
+   // Set the reporting timer
+   gettimeofday(&this->mrtg_time, (struct timezone *) 0);
+   this->mrtg_time.tv_sec += CLDVB_MRTG_INTERVAL;
+
+   return 0;
+}
+
+void cLdvbmrtgcnt::mrtgClose()
+{
+   // This is only for testing when using filetest.
+   if (this->mrtg_fh) {
+      this->dumpCounts();
+      fclose(this->mrtg_fh);
+      this->mrtg_fh = (FILE *) 0;
+   }
+}
+

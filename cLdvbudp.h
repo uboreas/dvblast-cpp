@@ -3,7 +3,14 @@
  * Copyright (C) 2016, Kylone
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
+ * Based on code from:
  *****************************************************************************
+ * udp.c: UDP input for DVBlast
+ *****************************************************************************
+ * Copyright (C) 2009, 2015 VideoLAN
+ *
+ * Authors: Christophe Massiot <massiot@via.ecp.fr>
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -22,17 +29,42 @@
 #ifndef CLDVBUDP_H_
 #define CLDVBUDP_H_
 
-#include <cLdvbcore.h>
+#include <cLdvbdemux.h>
 
-namespace libcLdvbudp {
+class cLdvbudp : public cLdvbdemux {
 
-   extern void udp_Open(void);
-   extern void udp_Reset(void);
-   extern int udp_SetFilter(uint16_t i_pid);
-   extern void udp_UnsetFilter(int i_fd, uint16_t i_pid);
-   extern char *psz_udp_src;
+   private:
+      int i_handle;
+      struct cLev_io udp_watcher;
+      struct cLev_timer mute_watcher;
+      bool b_udp;
+      int i_block_cnt;
+      uint8_t pi_ssrc[4];
+      uint16_t i_seqnum;
+      bool b_sync;
+      char *psz_udp_src;
+      static void udp_Read(void *loop, void *w, int revents);
+      static void udp_MuteCb(void *loop, void *w, int revents);
 
-} /* namespace libcLdvbudp */
+   protected:
+#ifdef HAVE_CLDVBHW
+      virtual int dev_PIDIsSelected(uint16_t i_pid) { return -1; }
+      virtual void dev_ResendCAPMTs() {}
+#endif
+      virtual void dev_Open();
+      virtual void dev_Reset();
+      virtual int dev_SetFilter(uint16_t i_pid);
+      virtual void dev_UnsetFilter(int i_fd, uint16_t i_pid);
+
+   public:
+      inline void setsource(char *s) {
+         this->psz_udp_src = s;
+      }
+
+      cLdvbudp();
+      virtual ~cLdvbudp();
+
+};
 
 
 #endif /*CLDVBUDP_H_*/

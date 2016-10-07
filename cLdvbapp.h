@@ -3,6 +3,7 @@
  * Copyright (C) 2016, Kylone
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
+ * Based on code from:
  *****************************************************************************
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,13 +23,19 @@
 #ifndef CLDVBAPP_H_
 #define CLDVBAPP_H_
 
-#include <cLdvbcore.h>
+#include <cLdvbdemux.h>
 
-namespace libcLdvbapp {
-
-   extern int cli(int i_argc, char **pp_argv);
-   extern int run(int priority, int adapter, int freq, int srate, int volt, const char *configfile);
-
-} /* namespace libcLdvbapp */
+class cLdvbapp {
+   private:
+      cLdvbdemux *pdemux;
+      static void sighandler(void *loop, void *p, int revents);
+      void cliversion();
+      int cliusage();
+   public:
+      int cli(int i_argc, char **pp_argv);
+      int run(int priority, int adapter, int freq, int srate, int volt, const char *configfile);
+      cLdvbapp();
+      ~cLdvbapp();
+};
 
 #endif /*CLDVBAPP_H_*/

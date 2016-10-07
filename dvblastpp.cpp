@@ -19,17 +19,17 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#include <stdio.h>
 #include <cLdvbapp.h>
 
 int main(int argc, char **argv)
 {
    cL::debug = 1;
    cL::severity = cL::dbg_all;
-   cLbug(cL::dbg_low, "c++ implementation\n");
 
-   return libcLdvbapp::cli(argc, argv);
-
-   return libcLdvbapp::run(1, 1, 10000000, 20000000, 13, "/path/to/conf/file");
+   cLdvbapp *pobj = new cLdvbapp();
+   int i = pobj->cli(argc, argv);
+   //int i = pobj->run(1, 1, 10000000, 20000000, 13, "/path/to/conf/file");
+   delete(pobj);
+   return i;
 }
 

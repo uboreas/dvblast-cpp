@@ -2,6 +2,7 @@
  * cLdvbmrtgcnt.h
  * Authors: Gokhan Poyraz <gokhan@kylone.com>
  *
+ * Based on code from:
  *****************************************************************************
  * mrtg-cnt.h
  *****************************************************************************
@@ -27,18 +28,30 @@
 #ifndef CLDVB_MRTG_CNT_H_
 #define CLDVB_MRTG_CNT_H_
 
-#include <cLdvbcore.h>
 #include <cLdvboutput.h>
 
-// Define the dump period in seconds
-#define CLDVB_MRTG_INTERVAL   10
-
-namespace libcLdvbmrtgcnt {
-
-   extern int mrtgInit(char *mrtg_file);
-   extern void mrtgClose();
-   extern void mrtgAnalyse(libcLdvboutput::block_t * p_ts);
-
-} /* namespace libcLdvbmrtgcnt */
+class cLdvbmrtgcnt {
+   private:
+      FILE *mrtg_fh;
+      long long l_mrtg_packets;
+      long long l_mrtg_seq_err_packets;
+      long long l_mrtg_error_packets;
+      long long l_mrtg_scram_packets;
+      // Reporting timer
+#ifdef HAVE_CLWIN32
+      LARGE_INTEGER mrtg_time;
+      LARGE_INTEGER mrtg_inc;
+#else
+      struct timeval mrtg_time;
+#endif
+      signed char i_pid_seq[CLDVB_MRTG_PIDS];
+      void dumpCounts();
+   public:
+      int mrtgInit(const char *mrtg_file);
+      void mrtgClose();
+      void mrtgAnalyse(cLdvboutput::block_t *p_ts);
+      cLdvbmrtgcnt();
+      ~cLdvbmrtgcnt();
+};
 
 #endif /*CLDVB_MRTG_CNT_H_*/
