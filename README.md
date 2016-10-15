@@ -1,5 +1,5 @@
 # dvblast++
-C++ implementaion of dvblast (v3.0)
+C++ implementation of dvblast (v3.0)
 
 You need to edit cmake file to define dependencies under configurable stuff before issuing build script.
 
