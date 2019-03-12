@@ -1,7 +1,6 @@
 /*
  * cLdvboutput.h
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * dvblast.h, dvblast.c, util.c, output.c
@@ -38,6 +37,10 @@
 #ifdef HAVE_CLICONV
 #include <iconv.h>
 #endif
+
+#include <bitstream/mpeg/psi.h>
+#include <bitstream/dvb/si.h>
+#define MAX_EIT_TABLES (EIT_TABLE_ID_SCHED_ACTUAL_LAST - EIT_TABLE_ID_PF_ACTUAL)
 
 /*
 Output configuration flags (for output_t -> i_config) - bit values
@@ -141,6 +144,7 @@ class cLdvboutput : public cLdvbobj {
             uint16_t *pi_pids;
             int i_nb_pids;
             uint16_t i_new_sid;
+            uint16_t i_onid;
             bool b_passthrough;
             /* for pidmap from config file */
             bool b_do_remap;
@@ -169,6 +173,8 @@ class cLdvboutput : public cLdvbobj {
             block_t *p_eit_ts_buffer;
             uint8_t i_eit_ts_buffer_offset, i_eit_cc;
             uint16_t i_tsid;
+            /* incomplete PID (only PCR packets) */
+            uint16_t i_pcr_pid;
             // Arrays used for mapping pids.
             // newpids is indexed using the original pid
             uint16_t pi_newpids[MAX_PIDS];
@@ -189,7 +195,7 @@ class cLdvboutput : public cLdvbobj {
       uint8_t p_pad_ts[TS_SIZE];
 
       static void dvb_string_init(dvb_string_t *p_dvb_string);
-      char *config_striconv(const char *psz_string);
+      uint8_t *config_striconv(const char *psz_string, const char *psz_charset, size_t *pi_length);
 
       static void RawFillHeaders(struct udprawpkt *dgram, in_addr_t ipsrc, in_addr_t ipdst, uint16_t portsrc, uint16_t portdst, uint8_t ttl, uint8_t tos, uint16_t len);
       static int output_BlockCount(output_t *p_output);
@@ -229,7 +235,7 @@ class cLdvboutput : public cLdvbobj {
       static void dvb_string_copy(dvb_string_t *p_dst, const dvb_string_t *p_src);
       static int dvb_string_cmp(const dvb_string_t *p_1, const dvb_string_t *p_2);
       static char *config_stropt(const char *psz_string);
-      void config_strdvb(dvb_string_t *p_dvb_string, const char *psz_string);
+      void config_strdvb(dvb_string_t *p_dvb_string, const char *psz_string, const char *psz_charset);
       void config_Init(output_config_t *p_config);
       static void config_Free(output_config_t *p_config);
       static void config_Print(output_config_t *p_config);

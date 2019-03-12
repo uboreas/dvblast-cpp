@@ -1,7 +1,6 @@
 /*
  * cLdvboutput.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * output.c, dvblast.c, util.c
@@ -38,6 +37,7 @@
 #include <bitstream/ietf/rtp.h>
 #include <bitstream/dvb/si/strings.h>
 #include <errno.h>
+#include <ctype.h> //isascii
 
 cLdvboutput::cLdvboutput()
 {
@@ -55,7 +55,7 @@ cLdvboutput::cLdvboutput()
    this->p_pad_ts[1] = 0x1f;
    this->p_pad_ts[3] = 0x10;
 
-   this->psz_dvb_charset = "UTF-8";
+   this->psz_dvb_charset = "UTF-8//IGNORE";
    this->b_random_tsid = 0;
    this->b_do_remap = false;
    this->pp_outputs = (output_t **) 0;
@@ -171,44 +171,58 @@ char *cLdvboutput::config_stropt(const char *psz_string)
    return ret;
 }
 
-char *cLdvboutput::config_striconv(const char *psz_string)
+uint8_t *cLdvboutput::config_striconv(const char *psz_string, const char *psz_charset, size_t *pi_length)
 {
    char *psz_input = this->config_stropt(psz_string);
+   *pi_length = strlen(psz_input);
 
-   if (!strcasecmp(this->psz_native_charset, this->psz_dvb_charset))
-      return psz_input;
+   /* do not convert ASCII strings */
+   const char *c = psz_string;
+   while (*c)
+      if (!isascii(*c++))
+         break;
+   if (!*c)
+      return (uint8_t *)psz_input;
+
+   if (!strcasecmp(this->psz_native_charset, psz_charset))
+      return (uint8_t *)psz_input;
 
 #ifdef HAVE_CLICONV
    if (this->conf_iconv == (iconv_t) -1) {
-      this->conf_iconv = iconv_open(this->psz_dvb_charset, this->psz_native_charset);
+      this->conf_iconv = iconv_open(psz_charset, this->psz_native_charset);
       if (this->conf_iconv == (iconv_t) -1)
-         return psz_input;
+         return (uint8_t *)psz_input;
    }
-   size_t i_input = strlen(psz_input);
+   char *psz_tmp = psz_input;
+   size_t i_input = *pi_length;
    size_t i_output = i_input * 6;
-   char *psz_output = cLmalloc(char, i_output);
-   char *p = psz_output;
-   if ((long)iconv(this->conf_iconv, &psz_input, &i_input, &p, &i_output) == -1) {
-      ::free(psz_output);
-      return psz_input;
+   size_t i_available = i_output;
+   char *p_output = cLmalloc(char, i_output);
+   char *p = p_output;
+   if (iconv(conf_iconv, &psz_tmp, &i_input, &p, &i_available) == (size_t)-1) {
+      free(p_output);
+      return (uint8_t *)psz_input;
    }
    ::free(psz_input);
-   return psz_output;
+   *pi_length = i_output - i_available;
+   return (uint8_t *)p_output;
 #else
-   cLbugf(cL::dbg_dvb, "unable to convert from %s to %s (iconv is not available)\n", this->psz_native_charset, this->psz_dvb_charset);
-   return psz_input;
+   cLbugf(cL::dbg_dvb, "unable to convert from %s to %s (iconv is not available)\n", this->psz_native_charset, psz_charset);
+   return (uint8_t *)psz_input;
 #endif
 }
 
-void cLdvboutput::config_strdvb(dvb_string_t *p_dvb_string, const char *psz_string)
+void cLdvboutput::config_strdvb(dvb_string_t *p_dvb_string, const char *psz_string, const char *psz_charset)
 {
    if (psz_string == (const char *) 0) {
       this->dvb_string_init(p_dvb_string);
       return;
    }
-   char *psz_iconv = this->config_striconv(psz_string);
    this->dvb_string_clean(p_dvb_string);
-   p_dvb_string->p = dvb_string_set((uint8_t *)psz_iconv, strlen(psz_iconv), this->psz_dvb_charset, &p_dvb_string->i);
+   size_t i_iconv;
+   uint8_t *p_iconv = config_striconv(psz_string, psz_charset, &i_iconv);
+   p_dvb_string->p = dvb_string_set(p_iconv, i_iconv, psz_charset, &p_dvb_string->i);
+   ::free(p_iconv);
 }
 
 void cLdvboutput::config_Init(output_config_t *p_config)
@@ -368,6 +382,11 @@ bool cLdvboutput::config_ParseHost(output_config_t *p_config, char *psz_string)
       return false;
    }
 
+   const char *psz_charset = this->psz_dvb_charset;
+   const char *psz_network_name = (const char *) 0;
+   const char *psz_service_name = (const char *) 0;
+   const char *psz_provider_name = (const char *) 0;
+
    if (psz_string == (char *) 0 || !*psz_string) {
       cLbug(cL::dbg_dvb, "string null, return false\n");
       goto end;
@@ -422,14 +441,20 @@ bool cLdvboutput::config_ParseHost(output_config_t *p_config, char *psz_string)
       if (IS_OPTION("networkid=")) {
          p_config->i_network_id = strtol((const char *)ARG_OPTION("networkid="), (char **) 0, 0);
       } else
+      if (IS_OPTION("onid=")) {
+         p_config->i_onid = strtol((const char *)ARG_OPTION("onid="), (char **) 0, 0 );
+      } else
+      if (IS_OPTION("charset=")) {
+         psz_charset = ARG_OPTION("charset=");
+      } else
       if (IS_OPTION("networkname=")) {
-         this->config_strdvb(&p_config->network_name, (const char *)ARG_OPTION("networkname="));
+         psz_network_name = ARG_OPTION("networkname=");
       } else
       if (IS_OPTION("srvname=")) {
-         this->config_strdvb(&p_config->service_name, (const char *)ARG_OPTION("srvname="));
+         psz_service_name = ARG_OPTION("srvname=");
       } else
       if (IS_OPTION("srvprovider=")) {
-         this->config_strdvb(&p_config->provider_name, (const char *)ARG_OPTION("srvprovider="));
+         psz_provider_name = ARG_OPTION("srvprovider=");
       } else
       if (IS_OPTION("srcaddr=")) {
          if (p_config->i_family != AF_INET) {
@@ -465,6 +490,13 @@ bool cLdvboutput::config_ParseHost(output_config_t *p_config, char *psz_string)
          cLbugf(cL::dbg_dvb, "unrecognized option %s\n", psz_string);
       }
    }
+
+   if (psz_network_name != (const char *) 0)
+       this->config_strdvb(&p_config->network_name, psz_network_name, psz_charset);
+   if (psz_service_name != (const char *) 0)
+      this->config_strdvb(&p_config->service_name, psz_service_name, psz_charset);
+   if (psz_provider_name != (const char *) 0)
+      this->config_strdvb(&p_config->provider_name, psz_provider_name, psz_charset);
 
    end:
    i_mtu = p_config->i_family == AF_INET6 ? DEFAULT_IPV6_MTU : DEFAULT_IPV4_MTU;
@@ -603,6 +635,7 @@ int cLdvboutput::output_Init(output_t *p_output, const output_config_t *p_config
    p_output->p_eit_ts_buffer = (block_t *) 0;
    if (this->b_random_tsid)
       p_output->i_tsid = rand() & 0xffff;
+   p_output->i_pcr_pid = 0;
 
    /* Init the mapped pids to unused */
    this->init_pid_mapping(p_output);
@@ -1054,8 +1087,8 @@ bool cLdvboutput::output_Setup(const char *netname, const char *proname)
       this->b_dvb_global = true;
    }
 
-   this->config_strdvb(&this->network_name, netname);
-   this->config_strdvb(&this->provider_name, proname);
+   this->config_strdvb(&this->network_name, netname, this->psz_native_charset);
+   this->config_strdvb(&this->provider_name, proname, this->psz_native_charset);
 
    bool rc = true;
 

@@ -1,8 +1,6 @@
 /*
  * cLdvbdevc.h
- * Copyright (C) 2016, Kylone
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  *****************************************************************************
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,22 +22,26 @@
 
 extern "C" {
 #if DVBAPI_VERSION >= 505
-   extern struct dtv_property *info_cmdargs;
+   extern struct dtv_property info_cmdargs[];
    extern struct dtv_properties info_cmdseq;
-   extern struct dtv_property *enum_cmdargs;
+   extern struct dtv_property enum_cmdargs[];
    extern struct dtv_properties enum_cmdseq;
 #endif
-   extern struct dtv_property *dvbs_cmdargs;
+   extern struct dtv_property dvbs_cmdargs[];
    extern struct dtv_properties dvbs_cmdseq;
-   extern struct dtv_property *dvbs2_cmdargs;
+   extern struct dtv_property dvbs2_cmdargs[];
    extern struct dtv_properties dvbs2_cmdseq;
-   extern struct dtv_property *dvbc_cmdargs;
+   extern struct dtv_property dvbc_cmdargs[];
    extern struct dtv_properties dvbc_cmdseq;
-   extern struct dtv_property *dvbt_cmdargs;
+   extern struct dtv_property dvbt_cmdargs[];
+   extern struct dtv_property dvbt2_cmdargs[];
+   extern struct dtv_properties dvbt2_cmdseq;
    extern struct dtv_properties dvbt_cmdseq;
-   extern struct dtv_property *atsc_cmdargs;
+   extern struct dtv_property atsc_cmdargs[];
    extern struct dtv_properties atsc_cmdseq;
-   extern struct dtv_property *pclear;
+   extern struct dtv_property isdbt_cmdargs[];
+   extern struct dtv_properties isdbt_cmdseq;
+   extern struct dtv_property pclear[];
    extern struct dtv_properties cmdclear;
 }
 

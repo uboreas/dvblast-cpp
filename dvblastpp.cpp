@@ -1,8 +1,6 @@
 /*
  * dvblastpp.cpp
- * Copyright (C) 2016, Kylone
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  *****************************************************************************
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +22,7 @@
 int main(int argc, char **argv)
 {
    cL::debug = 1;
-   cL::severity = cL::dbg_all;
+   cL::severity = cL::dbg_low | cL::dbg_dvb;
 
    cLdvbapp *pobj = new cLdvbapp();
    int i = pobj->cli(argc, argv);

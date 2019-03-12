@@ -1,3 +1,41 @@
+Changes between 3.3 and 3.4:
+----------------------------
+  * Fix segfault with dvblastctl when getting large tables
+  * Fix wrong library version
+
+Changes between 3.2 and 3.3:
+----------------------------
+  * Add support for getting EIT present/following for chosen service in dvblastctl
+  * Add support for getting EIT schedule for chosen service in dvblastctl
+  * Switch default string charset to UTF-8//IGNORE
+  * Add --system-charset/-j option to dvblastctl
+  * Add --timeout/-t option to dvblastctl and set default to 15 seconds
+  * Add --lnb-type universal|old-sky option to dvblast
+  * Add support for multistream-id calculation using --multistream-id-pls-mode,
+    --multistream-id-pls-code and --multistream-id-is-id options
+  * Add --passthrough (to stdout) option
+
+Changes between 3.1 and 3.2:
+----------------------------
+  * Fix HEVC support
+  * Fix memory leak on loading the configuration
+  * Also remap ONID in EIT
+  * Fix segmentation fault when using output charset different from native
+  * Use default charset ISO 6937 for ASCII strings
+  * Add /charset= output option
+  * Fix EIT schedule signaling in SDT
+
+Changes between 3.0 and 3.1:
+----------------------------
+  * Print source address in UDP input
+  * Print actual EITp/f
+  * Add DVB-T2 support with multi PLP
+  * Add ISDB-T support
+  * Add HEVC support
+  * Add ONID remapping
+  * Add PCR even when PCR PID is not selected, but drop non-PCR packets
+  * Extend support for uncommitted DiSEqC switches with up to 16 ports
+  * Fix reload of configuration with tsid=-1
 
 Changes between 2.2 and 3.0:
 ----------------------------

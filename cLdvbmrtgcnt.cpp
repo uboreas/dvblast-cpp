@@ -1,7 +1,6 @@
 /*
  * cLdvbmrtgcnt.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * mrtg-cnt.c Handle dvb TS packets and count them for MRTG

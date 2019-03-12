@@ -1,7 +1,6 @@
 /*
  * cLdvbdemux.h
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * dvblast.h, demux.c
@@ -55,8 +54,7 @@ class cLdvbdemux : public cLdvben50221 {
       } ts_pid_info_t;
 
    private:
-      typedef struct ts_pid_t
-      {
+      typedef struct ts_pid_t {
          int i_refcount;
          int i_psi_refcount;
          bool b_pes;
@@ -82,13 +80,18 @@ class cLdvbdemux : public cLdvben50221 {
          struct cLev_timer timeout_watcher;
       } ts_pid_t;
 
-      typedef struct sid_t
-      {
-            uint16_t i_sid, i_pmt_pid;
-            uint8_t *p_current_pmt;
+      struct eit_sections {
+         PSI_TABLE_DECLARE(data);
+      };
+      /* EIT is carried in several separate tables, we need to track each table
+      separately, otherwise one table overwrites sections of another table */
+
+      typedef struct sid_t {
+         uint16_t i_sid, i_pmt_pid;
+         uint8_t *p_current_pmt;
+         struct eit_sections eit_table[MAX_EIT_TABLES];
       } sid_t;
 
-      mtime_t i_wallclock;
       PSI_TABLE_DECLARE(pp_current_pat_sections);
       PSI_TABLE_DECLARE(pp_next_pat_sections);
       PSI_TABLE_DECLARE(pp_current_cat_sections);
@@ -118,23 +121,24 @@ class cLdvbdemux : public cLdvben50221 {
       static void PrintESCb(void *loop, void *p, int revents);
       void PrintES(uint16_t i_pid);
       void demux_Handle(block_t *p_ts);
-      static int IsIn(uint16_t *pi_pids, int i_nb_pids, uint16_t i_pid);
+      static bool IsIn(const uint16_t *pi_pids, int i_nb_pids, uint16_t i_pid);
       void SetDTS(block_t *p_list);
       void SetPID(uint16_t i_pid);
       void SetPID_EMM(uint16_t i_pid);
       void UnsetPID(uint16_t i_pid);
       void StartPID(output_t *p_output, uint16_t i_pid);
       void StopPID(output_t *p_output, uint16_t i_pid);
-      void SelectPID(uint16_t i_sid, uint16_t i_pid);
+      void SelectPID(uint16_t i_sid, uint16_t i_pid, bool b_pcr);
       void UnselectPID(uint16_t i_sid, uint16_t i_pid);
       void SelectPMT(uint16_t i_sid, uint16_t i_pid);
       void UnselectPMT(uint16_t i_sid, uint16_t i_pid);
-      void GetPIDS(uint16_t **ppi_wanted_pids, int *pi_nb_wanted_pids, uint16_t i_sid, const uint16_t *pi_pids, int i_nb_pids);
+      void GetPIDS(uint16_t **ppi_wanted_pids, int *pi_nb_wanted_pids, uint16_t *pi_wanted_pcr_pid, uint16_t i_sid, const uint16_t *pi_pids, int i_nb_pids);
       void OutputPSISection(output_t *p_output, uint8_t *p_section, uint16_t i_pid, uint8_t *pi_cc, mtime_t i_dts, block_t **pp_ts_buffer, uint8_t *pi_ts_buffer_offset);
       void SendPAT(mtime_t i_dts);
       void SendPMT(sid_t *p_sid, mtime_t i_dts);
       void SendNIT(mtime_t i_dts);
       void SendSDT(mtime_t i_dts);
+      bool handle_epg(int i_table_id);
       void SendEIT(sid_t *p_sid, mtime_t i_dts, uint8_t *p_eit);
       void FlushEIT(output_t *p_output, mtime_t i_dts);
       void SendTDT(block_t *p_ts);
@@ -162,6 +166,7 @@ class cLdvbdemux : public cLdvben50221 {
       void HandleNITSection(uint16_t i_pid, uint8_t *p_section, mtime_t i_dts);
       void HandleSDT(mtime_t i_dts);
       void HandleSDTSection(uint16_t i_pid, uint8_t *p_section, mtime_t i_dts);
+      void HandleATSCSection(uint16_t i_pid, uint8_t *p_section, mtime_t i_dts);
       void HandleEIT(uint16_t i_pid, uint8_t *p_eit, mtime_t i_dts);
       void HandleSection(uint16_t i_pid, uint8_t *p_section, mtime_t i_dts);
       void HandlePSIPacket(uint8_t *p_ts, mtime_t i_dts);
@@ -172,6 +177,7 @@ class cLdvbdemux : public cLdvben50221 {
       static uint8_t **psi_unpack_sections(uint8_t *p_flat_sections, unsigned int i_size);
 
    protected:
+      mtime_t i_wallclock;
       cLdvbmrtgcnt *pmrtg;
       const char *psz_conf_file;
       bool b_enable_emm;
@@ -194,6 +200,9 @@ class cLdvbdemux : public cLdvben50221 {
       uint8_t *demux_get_current_packed_CAT(unsigned int *pi_pack_size);
       uint8_t *demux_get_current_packed_NIT(unsigned int *pi_pack_size);
       uint8_t *demux_get_current_packed_SDT(unsigned int *pi_pack_size);
+      uint8_t *demux_get_packed_EIT(uint16_t i_sid, uint8_t start_table, uint8_t end_table, unsigned int *eit_size);
+      uint8_t *demux_get_packed_EIT_pf(uint16_t service_id, unsigned int *pi_pack_size);
+      uint8_t *demux_get_packed_EIT_schedule(uint16_t service_id, unsigned int *pi_pack_size);
       uint8_t *demux_get_packed_PMT(uint16_t service_id, unsigned int *pi_pack_size);
       void demux_get_PID_info(uint16_t i_pid, uint8_t *p_data);
       void demux_get_PIDS_info(uint8_t *p_data);

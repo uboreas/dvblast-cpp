@@ -6,6 +6,7 @@
 
 cmake_minimum_required (VERSION 2.6)
 project ("dvblastpp")
+set (CMAKE_VERBOSE_MAKEFILE	ON)
 
 ## configurable stuff
 set (HAVE_CLDEBUG       true)
@@ -19,9 +20,13 @@ set (HAVE_CLICONV       true)
 set (incdir_bitstream	"/usr/local/include")
 set (incdir_ev		"/usr/local/include")
 set (libdir_ev		"/usr/local/lib")
+
+set (incdir_bitstream	"/opt/devel/projects/cLsuite/deps/Linux-x86_64/include")
+set (incdir_ev		"/opt/devel/projects/cLsuite/deps/Linux-x86_64/include")
+set (libdir_ev		"/opt/devel/projects/cLsuite/deps/Linux-x86_64/lib")
 ## end of configurable stuff
 
-set (c__flags "-Wall -Wformat-security -Wno-strict-aliasing -O3 -fomit-frame-pointer -g -DVERSION=\\\"3.0\\\" -DVERSION_MAJOR=3 -DVERSION_MINOR=0 -DVERSION_EXTRA=\\\"release\\\"")
+set (c__flags "-Wall -Wformat-security -Wno-strict-aliasing -O3 -fomit-frame-pointer -g -DVERSION=\\\"3.4\\\" -DVERSION_MAJOR=3 -DVERSION_MINOR=4 -DVERSION_EXTRA=\\\"release\\\"")
 set (cxxflags "${c__flags}")
 
 set (CMAKE_C_FLAGS           "${c__flags} ${CMAKE_C_FLAGS}")
@@ -60,6 +65,7 @@ endif (HAVE_CLASIHW)
 if (HAVE_CLDVBHW)
    set (_cLsrc
       ${_cLsrc}
+      cLdvbatsc.c
       cLdvbdevc.c
       cLdvbdev.cpp
    )

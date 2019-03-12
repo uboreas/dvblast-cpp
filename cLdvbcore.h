@@ -1,7 +1,6 @@
 /*
  * cLdvbcore.h
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * config.h, dvblast.h, util.c
@@ -37,13 +36,14 @@
 #endif
 
 #include <cLcommon.h>
+#include <string.h>
 
 //#define HAVE_CLDVBHW
 
-#define DVB_VERSION                 "3.0"
+#define DVB_VERSION                 "3.4"
 #define DVB_VERSION_MAJOR           3
-#define DVB_VERSION_MINOR           0
-#define DVB_VERSION_EXTRA           "cLrelease"
+#define DVB_VERSION_MINOR           4
+#define DVB_VERSION_EXTRA           "release"
 #define DEFAULT_PORT                3001
 #define TS_SIZE                     188
 #define MAX_PIDS                    8192
@@ -106,6 +106,7 @@ class cLdvbobj {
       char *psz_mrtg_file;
       mtime_t i_print_period;
       int i_priority, i_adapter;
+      int i_delsysatsc;
 
    public:
       void *event_loop;
@@ -124,6 +125,13 @@ class cLdvbobj {
       }
       inline void set_adapter(int a) {
          this->i_adapter = a;
+      }
+      inline bool streq(const char *a, const char *b) {
+         if (!a || !b)
+            return false;
+         if (a == b)
+            return true;
+         return (strcmp(a, b) == 0);
       }
 
       static mtime_t mdate(void);

@@ -1,7 +1,6 @@
 /*
  * cLdvbcomm.h
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * comm.h

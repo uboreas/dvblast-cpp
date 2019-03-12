@@ -1,7 +1,6 @@
 /*
  * cLdvbudp.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * udp.c: UDP input for DVBlast
@@ -27,6 +26,7 @@
 
 #include <cLdvbudp.h>
 
+#include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
@@ -40,6 +40,7 @@
 
 
 #define UDP_LOCK_TIMEOUT 5000000 /* 5 s */
+#define PRINT_REFRACTORY_PERIOD 1000000 /* 1 s */
 
 cLdvbudp::cLdvbudp()
 {
@@ -48,7 +49,9 @@ cLdvbudp::cLdvbudp()
    this->i_block_cnt = 0;
    this->i_seqnum = 0;
    this->b_sync = false;
+   this->i_last_print = 0;
    this->psz_udp_src = (char *) 0;
+   this->piped = false;
    for (int i = 0; i < 4; i++)
       this->pi_ssrc[i] = 0;
    cLbug(cL::dbg_high, "cLdvbudp created\n");
@@ -64,8 +67,9 @@ cLdvbudp::~cLdvbudp()
 
 void cLdvbudp::dev_Open()
 {
-   int i_family;
-   struct addrinfo *p_connect_ai = (addrinfo *) 0, *p_bind_ai;
+   int i_family = AF_INET;
+   struct addrinfo *p_connect_ai = (addrinfo *) 0;
+   struct addrinfo *p_bind_ai = (struct addrinfo *) 0;
    int i_if_index = 0;
    in_addr_t i_if_addr = INADDR_ANY;
    int i_mtu = 0;
@@ -77,24 +81,29 @@ void cLdvbudp::dev_Open()
 
    /* Parse configuration. */
 
-   if ((psz_bind = strchr(psz_string, '@')) != (char *) 0) {
-      *psz_bind++ = '\0';
-      p_connect_ai = this->ParseNodeService(psz_string, (char **) 0, 0);
+   cLbugf(cL::dbg_dvb, "parsing %s\n", psz_string);
+   if (!strncmp(psz_string, "@stdin", 6)) {
+      this->piped = true;
    } else {
-      psz_bind = psz_string;
-   }
-
-   p_bind_ai = this->ParseNodeService(psz_bind, &psz_string, DEFAULT_PORT);
-   if (p_bind_ai == (addrinfo *) 0) {
-      cLbugf(cL::dbg_dvb, "couldn't parse %s\n", psz_bind);
-      exit(EXIT_FAILURE);
-   }
-   i_family = p_bind_ai->ai_family;
-
-   if (p_connect_ai != NULL && p_connect_ai->ai_family != i_family) {
-      cLbug(cL::dbg_dvb, "invalid connect address\n");
-      freeaddrinfo(p_connect_ai);
-      p_connect_ai = (addrinfo *) 0;
+      if ((psz_bind = strchr(psz_string, '@')) != (char *) 0) {
+         *psz_bind++ = '\0';
+         p_connect_ai = this->ParseNodeService(psz_string, (char **) 0, 0);
+      } else {
+         psz_bind = psz_string;
+      }
+   
+      p_bind_ai = this->ParseNodeService(psz_bind, &psz_string, DEFAULT_PORT);
+      if (p_bind_ai == (addrinfo *) 0) {
+         cLbugf(cL::dbg_dvb, "couldn't parse %s\n", psz_bind);
+         exit(EXIT_FAILURE);
+      }
+      i_family = p_bind_ai->ai_family;
+   
+      if (p_connect_ai != NULL && p_connect_ai->ai_family != i_family) {
+         cLbug(cL::dbg_dvb, "invalid connect address\n");
+         freeaddrinfo(p_connect_ai);
+         p_connect_ai = (addrinfo *) 0;
+      }
    }
 
    while ((psz_string = strchr(psz_string, '/')) != (char *) 0) {
@@ -125,120 +134,126 @@ void cLdvbudp::dev_Open()
 
    }
 
-   if (!i_mtu)
-      i_mtu = i_family == AF_INET6 ? DEFAULT_IPV6_MTU : DEFAULT_IPV4_MTU;
-
-   this->i_block_cnt = (i_mtu - (this->b_udp ? 0 : RTP_HEADER_SIZE)) / TS_SIZE;
-
-
    /* Do stuff. */
 
-   if ((this->i_handle = socket(i_family, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-      cLbugf(cL::dbg_dvb, "couldn't create socket (%s)\n", strerror(errno));
-      exit(EXIT_FAILURE);
-   }
-
-   setsockopt(this->i_handle, SOL_SOCKET, SO_REUSEADDR, (void *) &i, sizeof(i));
-
-   /* Increase the receive buffer size to 1/2MB (8Mb/s during 1/2s) to avoid
-    * packet loss caused by scheduling problems */
-   i = 0x80000;
-
-   setsockopt(this->i_handle, SOL_SOCKET, SO_RCVBUF, (void *) &i, sizeof(i));
-
-   if (bind(this->i_handle, p_bind_ai->ai_addr, p_bind_ai->ai_addrlen) < 0) {
-      cLbugf(cL::dbg_dvb, "couldn't bind (%s)\n", strerror(errno));
-      close(this->i_handle);
-      exit(EXIT_FAILURE);
-   }
-
-   if (p_connect_ai != (addrinfo *) 0) {
-      uint16_t i_port;
-      if (i_family == AF_INET6) {
-         i_port = ((struct sockaddr_in6 *)p_connect_ai->ai_addr)->sin6_port;
-      } else {
-         i_port = ((struct sockaddr_in *)p_connect_ai->ai_addr)->sin_port;
-      }
-
-      if (i_port != 0 && connect(this->i_handle, p_connect_ai->ai_addr, p_connect_ai->ai_addrlen) < 0) {
-         cLbugf(cL::dbg_dvb, "couldn't connect socket (%s)\n", strerror(errno));
-      }
-   }
-
-   /* Join the multicast group if the socket is a multicast address */
-   if (i_family == AF_INET6) {
-      struct sockaddr_in6 *p_addr = (struct sockaddr_in6 *)p_bind_ai->ai_addr;
-      if (IN6_IS_ADDR_MULTICAST(&p_addr->sin6_addr)) {
-         struct ipv6_mreq imr;
-         imr.ipv6mr_multiaddr = p_addr->sin6_addr;
-         imr.ipv6mr_interface = i_if_index;
-         if (i_if_addr != INADDR_ANY) {
-            cLbug(cL::dbg_dvb, "ignoring ifaddr option in IPv6\n");
-         }
-         if (setsockopt(this->i_handle, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, (char *)&imr, sizeof(struct ipv6_mreq)) < 0) {
-            cLbugf(cL::dbg_dvb, "couldn't join multicast group (%s)\n", strerror(errno));
-         }
-      }
+   if (this->piped) {
+      this->i_handle = fileno(stdin);
+      this->i_block_cnt = 1;
    } else {
-      struct sockaddr_in *p_addr = (struct sockaddr_in *)p_bind_ai->ai_addr;
-      if (IN_MULTICAST(ntohl(p_addr->sin_addr.s_addr))) {
-         if (p_connect_ai != (addrinfo *) 0) {
-#ifndef IP_ADD_SOURCE_MEMBERSHIP
-            cLbug(cL::dbg_dvb, "IP_ADD_SOURCE_MEMBERSHIP is unsupported.\n");
-#else
-            /* Source-specific multicast */
-            struct sockaddr *p_src = p_connect_ai->ai_addr;
-            struct ip_mreq_source imr;
-            imr.imr_multiaddr = p_addr->sin_addr;
-            imr.imr_interface.s_addr = i_if_addr;
-            imr.imr_sourceaddr = ((struct sockaddr_in *)p_src)->sin_addr;
-            if (i_if_index) {
-               cLbug(cL::dbg_dvb, "ignoring ifindex option in SSM\n");
-            }
-            if (setsockopt(this->i_handle, IPPROTO_IP, IP_ADD_SOURCE_MEMBERSHIP, (char *)&imr, sizeof(struct ip_mreq_source)) < 0) {
-               cLbugf(cL::dbg_dvb, "couldn't join multicast group (%s)\n", strerror(errno));
-            }
-#endif
-         } else
-         if (i_if_index) {
-            /* Linux-specific interface-bound multicast */
-            struct ip_mreqn imr;
-            imr.imr_multiaddr = p_addr->sin_addr;
-#ifdef HAVE_CLLINUX
-            imr.imr_address.s_addr = i_if_addr;
-            imr.imr_ifindex = i_if_index;
-#endif
-            if (setsockopt(this->i_handle, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&imr, sizeof(struct ip_mreqn)) < 0) {
-               cLbugf(cL::dbg_dvb, "couldn't join multicast group (%s)\n", strerror(errno));
-            }
-         } else {
-            /* Regular multicast */
-            struct ip_mreq imr;
-            imr.imr_multiaddr = p_addr->sin_addr;
-            imr.imr_interface.s_addr = i_if_addr;
+      if (!i_mtu)
+         i_mtu = i_family == AF_INET6 ? DEFAULT_IPV6_MTU : DEFAULT_IPV4_MTU;
 
-            if (setsockopt(this->i_handle, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&imr, sizeof(struct ip_mreq)) == -1) {
-               cLbugf(cL::dbg_dvb, "couldn't join multicast group (%s)\n", strerror(errno));
-            }
-         }
-#ifdef SO_BINDTODEVICE
-         if (psz_ifname) {
-            if (setsockopt(this->i_handle, SOL_SOCKET, SO_BINDTODEVICE, psz_ifname, strlen(psz_ifname)+1) < 0) {
-               cLbugf(cL::dbg_dvb, "couldn't bind to device %s (%s)\n", psz_ifname, strerror(errno));
-            }
-            free(psz_ifname);
-            psz_ifname = (char *) 0;
-         }
-#endif
+      this->i_block_cnt = (i_mtu - (this->b_udp ? 0 : RTP_HEADER_SIZE)) / TS_SIZE;
+
+      if ((this->i_handle = socket(i_family, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+         cLbugf(cL::dbg_dvb, "couldn't create socket (%s)\n", strerror(errno));
+         exit(EXIT_FAILURE);
       }
+
+      setsockopt(this->i_handle, SOL_SOCKET, SO_REUSEADDR, (void *) &i, sizeof(i));
+
+      /* Increase the receive buffer size to 1/2MB (8Mb/s during 1/2s) to avoid
+       * packet loss caused by scheduling problems */
+      i = 0x80000;
+
+      setsockopt(this->i_handle, SOL_SOCKET, SO_RCVBUF, (void *) &i, sizeof(i));
+
+      if (bind(this->i_handle, p_bind_ai->ai_addr, p_bind_ai->ai_addrlen) < 0) {
+         cLbugf(cL::dbg_dvb, "couldn't bind (%s)\n", strerror(errno));
+         close(this->i_handle);
+         exit(EXIT_FAILURE);
+      }
+
+      if (p_connect_ai != (addrinfo *) 0) {
+         uint16_t i_port;
+         if (i_family == AF_INET6) {
+            i_port = ((struct sockaddr_in6 *)p_connect_ai->ai_addr)->sin6_port;
+         } else {
+            i_port = ((struct sockaddr_in *)p_connect_ai->ai_addr)->sin_port;
+         }
+   
+         if (i_port != 0 && connect(this->i_handle, p_connect_ai->ai_addr, p_connect_ai->ai_addrlen) < 0) {
+            cLbugf(cL::dbg_dvb, "couldn't connect socket (%s)\n", strerror(errno));
+         }
+      }
+
+      /* Join the multicast group if the socket is a multicast address */
+      if (i_family == AF_INET6) {
+         struct sockaddr_in6 *p_addr = (struct sockaddr_in6 *)p_bind_ai->ai_addr;
+         if (IN6_IS_ADDR_MULTICAST(&p_addr->sin6_addr)) {
+            struct ipv6_mreq imr;
+            imr.ipv6mr_multiaddr = p_addr->sin6_addr;
+            imr.ipv6mr_interface = i_if_index;
+            if (i_if_addr != INADDR_ANY) {
+               cLbug(cL::dbg_dvb, "ignoring ifaddr option in IPv6\n");
+            }
+            if (setsockopt(this->i_handle, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, (char *)&imr, sizeof(struct ipv6_mreq)) < 0) {
+               cLbugf(cL::dbg_dvb, "couldn't join multicast group (%s)\n", strerror(errno));
+            }
+         }
+      } else {
+         struct sockaddr_in *p_addr = (struct sockaddr_in *)p_bind_ai->ai_addr;
+         if (IN_MULTICAST(ntohl(p_addr->sin_addr.s_addr))) {
+            if (p_connect_ai != (addrinfo *) 0) {
+#ifndef IP_ADD_SOURCE_MEMBERSHIP
+               cLbug(cL::dbg_dvb, "IP_ADD_SOURCE_MEMBERSHIP is unsupported.\n");
+#else
+               /* Source-specific multicast */
+               struct sockaddr *p_src = p_connect_ai->ai_addr;
+               struct ip_mreq_source imr;
+               imr.imr_multiaddr = p_addr->sin_addr;
+               imr.imr_interface.s_addr = i_if_addr;
+               imr.imr_sourceaddr = ((struct sockaddr_in *)p_src)->sin_addr;
+               if (i_if_index) {
+                  cLbug(cL::dbg_dvb, "ignoring ifindex option in SSM\n");
+               }
+               if (setsockopt(this->i_handle, IPPROTO_IP, IP_ADD_SOURCE_MEMBERSHIP, (char *)&imr, sizeof(struct ip_mreq_source)) < 0) {
+                  cLbugf(cL::dbg_dvb, "couldn't join multicast group (%s)\n", strerror(errno));
+               }
+#endif
+            } else
+            if (i_if_index) {
+               /* Linux-specific interface-bound multicast */
+               struct ip_mreqn imr;
+               imr.imr_multiaddr = p_addr->sin_addr;
+#ifdef HAVE_CLLINUX
+               imr.imr_address.s_addr = i_if_addr;
+               imr.imr_ifindex = i_if_index;
+#endif
+               if (setsockopt(this->i_handle, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&imr, sizeof(struct ip_mreqn)) < 0) {
+                  cLbugf(cL::dbg_dvb, "couldn't join multicast group (%s)\n", strerror(errno));
+               }
+            } else {
+               /* Regular multicast */
+               struct ip_mreq imr;
+               imr.imr_multiaddr = p_addr->sin_addr;
+               imr.imr_interface.s_addr = i_if_addr;
+   
+               if (setsockopt(this->i_handle, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&imr, sizeof(struct ip_mreq)) == -1) {
+                  cLbugf(cL::dbg_dvb, "couldn't join multicast group (%s)\n", strerror(errno));
+               }
+            }
+#ifdef SO_BINDTODEVICE
+            if (psz_ifname) {
+               if (setsockopt(this->i_handle, SOL_SOCKET, SO_BINDTODEVICE, psz_ifname, strlen(psz_ifname)+1) < 0) {
+                  cLbugf(cL::dbg_dvb, "couldn't bind to device %s (%s)\n", psz_ifname, strerror(errno));
+               }
+               free(psz_ifname);
+               psz_ifname = (char *) 0;
+            }
+#endif
+         }
+      }
+
+      if (p_bind_ai != (struct addrinfo *) 0) {
+         freeaddrinfo(p_bind_ai);
+      }
+      if (p_connect_ai != (addrinfo *) 0)
+         freeaddrinfo(p_connect_ai);
+      free(psz_save);
+
+      cLbugf(cL::dbg_dvb, "binding socket to %s\n", this->psz_udp_src);
    }
-
-   freeaddrinfo(p_bind_ai);
-   if (p_connect_ai != (addrinfo *) 0)
-      freeaddrinfo(p_connect_ai);
-   free(psz_save);
-
-   cLbugf(cL::dbg_dvb, "binding socket to %s\n", this->psz_udp_src);
 
    this->udp_watcher.data = this;
    cLev_io_init(&this->udp_watcher, cLdvbudp::udp_Read, this->i_handle, 1); //EV_READ
@@ -246,12 +261,65 @@ void cLdvbudp::dev_Open()
 
    this->mute_watcher.data = this;
    cLev_timer_init(&this->mute_watcher, cLdvbudp::udp_MuteCb, UDP_LOCK_TIMEOUT / 1000000., UDP_LOCK_TIMEOUT / 1000000.);
+   ::memset(&this->last_addr, 0, sizeof(this->last_addr));
+}
+
+void cLdvbudp::udp_Read_print_refactory()
+{
+   this->i_wallclock = mdate();
+   if (this->i_last_print + PRINT_REFRACTORY_PERIOD < this->i_wallclock) {
+      this->i_last_print = this->i_wallclock;
+      struct sockaddr_storage addr;
+      struct msghdr mh = {
+           .msg_name = &addr,
+           .msg_namelen = sizeof(addr),
+           .msg_iov = NULL,
+           .msg_iovlen = 0,
+           .msg_control = NULL,
+           .msg_controllen = 0,
+           .msg_flags = 0
+      };
+      if (recvmsg(this->i_handle, &mh, MSG_DONTWAIT | MSG_PEEK) != -1 && mh.msg_namelen >= sizeof(struct sockaddr)) {
+           char psz_addr[256], psz_port[42];
+           if (memcmp(&addr, &this->last_addr, mh.msg_namelen) && getnameinfo((const struct sockaddr *)&addr, mh.msg_namelen, psz_addr, sizeof(psz_addr), psz_port, sizeof(psz_port), NI_DGRAM | NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
+               memcpy(&this->last_addr, &addr, mh.msg_namelen);
+               cLbugf(cL::dbg_dvb, "source: %s:%s", psz_addr, psz_port);
+           }
+       }
+   }
+}
+
+int cLdvbudp::p_readv(int fd, void *p, int ni)
+{
+   struct iovec *p_iov = (struct iovec *)p;
+   int i = 0;
+   int s = 0;
+   uint8_t *d;
+   int ts = 0;
+
+   for (i = 0; i < ni; i++) {
+      d = (uint8_t *)p_iov[i].iov_base;
+      s = p_iov[0].iov_len;
+      while (s > 0) {
+         int ss = read(fd, (void *)d, s);
+         if (ss < 0)
+            return -1;
+         ts += ss;
+         s -= ss;
+         d += ss;
+      }
+   }
+   
+   return ts;
 }
 
 void cLdvbudp::udp_Read(void *loop, void *p, int revents)
 {
    struct cLev_io *w = (struct cLev_io *) p;
    cLdvbudp *pobj = (cLdvbudp *) w->data;
+
+   if (!pobj->piped)
+      pobj->udp_Read_print_refactory();
 
    struct iovec p_iov[pobj->i_block_cnt + 1];
    block_t *p_ts, **pp_current = &p_ts;
@@ -277,6 +345,13 @@ void cLdvbudp::udp_Read(void *loop, void *p, int revents)
    }
    pp_current = &p_ts;
 
+   if (pobj->piped) {
+      i_len = pobj->p_readv(pobj->i_handle, p_iov, i_iov);
+      if (i_len < 0) {
+         cLbugf(cL::dbg_dvb, "couldn't read from network (%s)\n", strerror(errno));
+         goto err;
+      }
+   } else
    if ((i_len = readv(pobj->i_handle, p_iov, i_iov)) < 0) {
       cLbugf(cL::dbg_dvb, "couldn't read from network (%s)\n", strerror(errno));
       goto err;
@@ -298,7 +373,7 @@ void cLdvbudp::udp_Read(void *loop, void *p, int revents)
          memcpy(&addr.s_addr, pi_new_ssrc, 4 * sizeof(uint8_t));
          cLbugf(cL::dbg_dvb, "new RTP source: %s\n", inet_ntoa(addr));
          memcpy(pobj->pi_ssrc, pi_new_ssrc, 4 * sizeof(uint8_t));
-         cLbugf(cL::dbg_dvb, "source: %s\n", inet_ntoa(addr));
+         cLbugf(cL::dbg_dvb, "rtpsource: %s\n", inet_ntoa(addr));
       }
       pobj->i_seqnum = rtp_get_seqnum(p_rtp_hdr) + 1;
       i_len -= RTP_HEADER_SIZE;

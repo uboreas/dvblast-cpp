@@ -1,7 +1,6 @@
 /*
  * cLdvben50221.h
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * en50221.h, en50221.c
@@ -35,10 +34,10 @@
 
 #ifdef HAVE_CLDVBHW
 
-#include <linux/dvb/version.h>
-#include <linux/dvb/dmx.h>
-#include <linux/dvb/frontend.h>
-#include <linux/dvb/ca.h>
+#include <linux_dvb_version.h>
+#include <linux_dvb_dmx.h>
+#include <linux_dvb_frontend.h>
+#include <linux_dvb_ca.h>
 
 #define STRINGIFY(z)          UGLY_KLUDGE(z)
 #define UGLY_KLUDGE(z)        #z

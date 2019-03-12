@@ -1,7 +1,6 @@
 /*
  * cLdvbdemux.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * demux.c, util.c, dvblast.c
@@ -40,6 +39,12 @@
 #ifdef HAVE_CLMACOS
 #include <stdarg.h>
 #endif
+
+#include <cLdvbatsc.h>
+#define MIN_SECTION_FRAGMENT  PSI_HEADER_SIZE_SYNTAX1
+#define PID_ATSC              0x1ffb
+#define TID_ATSC_CVT1         0xC8
+#define TID_ATSC_CVT2         0xC9
 
 #define MIN_SECTION_FRAGMENT    PSI_HEADER_SIZE_SYNTAX1
 
@@ -113,7 +118,8 @@ void cLdvbdemux::break_cb(void *loop, void *w, int revents)
 void cLdvbdemux::debug_cb(void *p, const char *fmt, ...)
 {
    cLpf(fmt, tbuf, nump);
-   cLbugf(cL::dbg_dvb, "%s\n", tbuf);
+   fprintf(stdout, "debug: %s\n", tbuf);
+   //cLbugf(cL::dbg_dvb, "%s\n", tbuf);
    ::free(tbuf);
 }
 
@@ -134,7 +140,7 @@ uint16_t cLdvbdemux::map_es_pid(output_t *p_output, uint8_t *p_es, uint16_t i_pi
 
    switch (i_stream_type) {
       case 0x03: /* audio MPEG-1 */
-      case 0x04: /* audio */
+      case 0x04: /* audio MPEG-2 */
       case 0x0f: /* audio AAC ADTS */
       case 0x11: /* audio AAC LATM */
       case 0x81: /* ATSC AC-3 */
@@ -146,9 +152,11 @@ uint16_t cLdvbdemux::map_es_pid(output_t *p_output, uint8_t *p_es, uint16_t i_pi
          }
          break;
       case 0x01: /* video MPEG-1 */
-      case 0x02: /* video */
+      case 0x02: /* video MPEG-2 */
       case 0x10: /* video MPEG-4 */
       case 0x1b: /* video H264 */
+      case 0x24: /* video H265 */
+      case 0x42: /* video AVS */
          if (this->b_do_remap) {
             i_newpid = this->pi_newpids[cLdvbdemux::I_VPID];
          } else {
@@ -355,6 +363,9 @@ void cLdvbdemux::demux_Close(void)
 
    for (i = 0; i < this->i_nb_sids; i++) {
       sid_t *p_sid = this->pp_sids[i];
+      for (int r = 0; r < MAX_EIT_TABLES; r++) {
+         psi_table_free(p_sid->eit_table[r].data);
+      }
       ::free(p_sid->p_current_pmt);
       ::free(p_sid);
    }
@@ -492,8 +503,12 @@ void cLdvbdemux::demux_Handle(block_t *p_ts)
       } else
       if (p_pid->i_psi_refcount) {
          this->HandlePSIPacket(p_ts->p_ts, p_ts->i_dts);
+      } else
+      if (this->i_delsysatsc && (i_pid != PADDING_PID)) {
+         if (ts_has_payload(p_ts->p_ts)) {
+            this->HandlePSIPacket(p_ts->p_ts, p_ts->i_dts);
+         }
       }
-
       if (this->b_enable_emm && p_pid->b_emm)
          this->SendEMM(p_ts);
    }
@@ -526,7 +541,8 @@ void cLdvbdemux::demux_Handle(block_t *p_ts)
             }
          }
 
-         this->output_Put(p_output, p_ts);
+         if (p_output->i_pcr_pid != i_pid || (ts_has_adaptation(p_ts->p_ts) && ts_get_adaptation(p_ts->p_ts) && tsaf_has_pcr(p_ts->p_ts)))
+            output_Put(p_output, p_ts);
 
          if (p_output->p_eit_ts_buffer != (block_t *) 0 && p_ts->i_dts > p_output->p_eit_ts_buffer->i_dts + MAX_EIT_RETENTION)
             this->FlushEIT(p_output, p_ts->i_dts);
@@ -550,7 +566,7 @@ void cLdvbdemux::demux_Handle(block_t *p_ts)
       this->block_Delete(p_ts);
 }
 
-int cLdvbdemux::IsIn(uint16_t *pi_pids, int i_nb_pids, uint16_t i_pid)
+bool cLdvbdemux::IsIn(const uint16_t *pi_pids, int i_nb_pids, uint16_t i_pid)
 {
    int i;
    for (i = 0; i < i_nb_pids; i++)
@@ -562,6 +578,7 @@ void cLdvbdemux::demux_Change(output_t *p_output, const output_config_t *p_confi
 {
    uint16_t *pi_wanted_pids, *pi_current_pids;
    int i_nb_wanted_pids, i_nb_current_pids;
+   uint16_t i_wanted_pcr_pid, i_current_pcr_pid;
 
    uint16_t i_old_sid = p_output->config.i_sid;
    uint16_t i_sid = p_config->i_sid;
@@ -573,9 +590,11 @@ void cLdvbdemux::demux_Change(output_t *p_output, const output_config_t *p_confi
    bool b_sid_change = i_sid != i_old_sid;
    bool b_pid_change = false, b_tsid_change = false;
    bool b_dvb_change = !!((p_output->config.i_config ^ p_config->i_config) & OUTPUT_DVB);
+   bool b_epg_change = !!((p_output->config.i_config ^ p_config->i_config) & OUTPUT_EPG);
    bool b_network_change = (this->dvb_string_cmp(&p_output->config.network_name, &p_config->network_name) || p_output->config.i_network_id != p_config->i_network_id);
    bool b_service_name_change = (this->dvb_string_cmp(&p_output->config.service_name, &p_config->service_name) || this->dvb_string_cmp(&p_output->config.provider_name, &p_config->provider_name));
    bool b_remap_change = p_output->config.i_new_sid != p_config->i_new_sid ||
+         p_output->config.i_onid != p_config->i_onid ||
          p_output->config.b_do_remap != p_config->b_do_remap ||
          p_output->config.pi_confpids[cLdvbdemux::I_PMTPID] != p_config->pi_confpids[cLdvbdemux::I_PMTPID] ||
          p_output->config.pi_confpids[cLdvbdemux::I_APID] != p_config->pi_confpids[cLdvbdemux::I_APID] ||
@@ -586,6 +605,7 @@ void cLdvbdemux::demux_Change(output_t *p_output, const output_config_t *p_confi
    p_output->config.i_config = p_config->i_config;
    p_output->config.i_network_id = p_config->i_network_id;
    p_output->config.i_new_sid = p_config->i_new_sid;
+   p_output->config.i_onid = p_config->i_onid;
    p_output->config.b_do_remap = p_config->b_do_remap;
    memcpy(p_output->config.pi_confpids, p_config->pi_confpids, sizeof(uint16_t) * CLDVB_N_MAP_PIDS);
 
@@ -598,10 +618,11 @@ void cLdvbdemux::demux_Change(output_t *p_output, const output_config_t *p_confi
    this->dvb_string_copy(&p_output->config.provider_name, &p_config->provider_name);
 
    if (p_config->i_tsid != -1 && p_output->config.i_tsid != p_config->i_tsid) {
-      p_output->i_tsid = p_config->i_tsid;
+      p_output->i_tsid = p_output->config.i_tsid = p_config->i_tsid;
       b_tsid_change = true;
    }
    if (p_config->i_tsid == -1 && p_output->config.i_tsid != -1) {
+      p_output->config.i_tsid = p_config->i_tsid;
       if (psi_table_validate(this->pp_current_pat_sections) && !this->b_random_tsid) {
          p_output->i_tsid = psi_table_get_tableidext(this->pp_current_pat_sections);
       } else {
@@ -613,8 +634,8 @@ void cLdvbdemux::demux_Change(output_t *p_output, const output_config_t *p_confi
    if (p_config->b_passthrough == p_output->config.b_passthrough && !b_sid_change && p_config->i_nb_pids == p_output->config.i_nb_pids && (!p_config->i_nb_pids || !memcmp(p_output->config.pi_pids, p_config->pi_pids, p_config->i_nb_pids * sizeof(uint16_t))))
       goto out_change;
 
-   this->GetPIDS(&pi_wanted_pids, &i_nb_wanted_pids, i_sid, pi_pids, i_nb_pids);
-   this->GetPIDS(&pi_current_pids, &i_nb_current_pids, i_old_sid, pi_old_pids, i_old_nb_pids);
+   this->GetPIDS(&pi_wanted_pids, &i_nb_wanted_pids, &i_wanted_pcr_pid, i_sid, pi_pids, i_nb_pids);
+   this->GetPIDS(&pi_current_pids, &i_nb_current_pids, &i_current_pcr_pid, i_old_sid, pi_old_pids, i_old_nb_pids);
 
    if (b_sid_change && i_old_sid) {
       sid_t *p_old_sid = this->FindSID(i_old_sid);
@@ -651,6 +672,7 @@ void cLdvbdemux::demux_Change(output_t *p_output, const output_config_t *p_confi
 
    ::free(pi_wanted_pids);
    ::free(pi_current_pids);
+   p_output->i_pcr_pid = i_wanted_pcr_pid;
 
    if (b_sid_change && i_sid) {
       sid_t *p_sid = this->FindSID(i_sid);
@@ -679,6 +701,17 @@ void cLdvbdemux::demux_Change(output_t *p_output, const output_config_t *p_confi
    p_output->config.i_nb_pids = i_nb_pids;
 
    out_change:
+   if (b_sid_change || b_pid_change || b_tsid_change || b_dvb_change || b_network_change || b_service_name_change || b_remap_change) {
+      cLbugf(cL::dbg_dvb, "change %s%s%s%s%s%s%s",
+                 b_sid_change ? "sid " : "",
+                 b_pid_change ? "pid " : "",
+                 b_tsid_change ? "tsid " : "",
+                 b_dvb_change ? "dvb " : "",
+                 b_network_change ? "network " : "",
+                 b_service_name_change ? "service_name " : "",
+                 b_remap_change ? "remap " : ""
+      );
+   }
    if (b_sid_change || b_remap_change) {
       this->NewSDT(p_output);
       this->NewNIT(p_output);
@@ -697,7 +730,7 @@ void cLdvbdemux::demux_Change(output_t *p_output, const output_config_t *p_confi
       if (b_network_change) {
          this->NewNIT(p_output);
       }
-      if (!b_tsid_change && b_service_name_change)
+      if (!b_tsid_change && (b_service_name_change || b_epg_change))
          this->NewSDT(p_output);
       if (b_pid_change)
          this->NewPMT(p_output);
@@ -800,11 +833,20 @@ void cLdvbdemux::StopPID(output_t *p_output, uint16_t i_pid)
    }
 }
 
-void cLdvbdemux::SelectPID(uint16_t i_sid, uint16_t i_pid)
+void cLdvbdemux::SelectPID(uint16_t i_sid, uint16_t i_pid, bool b_pcr)
 {
    for (int i = 0; i < this->i_nb_outputs; i++) {
-      if ((this->pp_outputs[i]->config.i_config & OUTPUT_VALID) && this->pp_outputs[i]->config.i_sid == i_sid && !this->pp_outputs[i]->config.i_nb_pids)
+      if ((this->pp_outputs[i]->config.i_config & OUTPUT_VALID) && pp_outputs[i]->config.i_sid == i_sid) {
+
+         if (pp_outputs[i]->config.i_nb_pids && !this->IsIn(pp_outputs[i]->config.pi_pids, pp_outputs[i]->config.i_nb_pids, i_pid)) {
+            if (b_pcr) {
+               pp_outputs[i]->i_pcr_pid = i_pid;
+            } else {
+               continue;
+            }
+         }
          this->StartPID(this->pp_outputs[i], i_pid);
+      }
    }
 }
 
@@ -847,23 +889,27 @@ void cLdvbdemux::UnselectPMT(uint16_t i_sid, uint16_t i_pid)
    }
 }
 
-void cLdvbdemux::GetPIDS(uint16_t **ppi_wanted_pids, int *pi_nb_wanted_pids, uint16_t i_sid, const uint16_t *pi_pids, int i_nb_pids)
+void cLdvbdemux::GetPIDS(uint16_t **ppi_wanted_pids, int *pi_nb_wanted_pids, uint16_t *pi_wanted_pcr_pid, uint16_t i_sid, const uint16_t *pi_pids, int i_nb_pids)
 {
    sid_t *p_sid;
    uint8_t *p_pmt;
    uint16_t i_pmt_pid, i_pcr_pid;
    uint8_t *p_es;
    uint8_t j;
+   const uint8_t *p_desc;
+
+   *pi_wanted_pcr_pid = 0;
 
    if (i_nb_pids || i_sid == 0) {
       *pi_nb_wanted_pids = i_nb_pids;
       *ppi_wanted_pids = cLmalloc(uint16_t, i_nb_pids);
       memcpy(*ppi_wanted_pids, pi_pids, sizeof(uint16_t) * i_nb_pids);
-      return;
+      if (i_sid == 0)
+         return;
+   } else {
+      *pi_nb_wanted_pids = 0;
+      *ppi_wanted_pids = NULL;
    }
-
-   *pi_nb_wanted_pids = 0;
-   *ppi_wanted_pids = NULL;
 
    p_sid = this->FindSID(i_sid);
    if (p_sid == (sid_t *) 0)
@@ -880,15 +926,45 @@ void cLdvbdemux::GetPIDS(uint16_t **ppi_wanted_pids, int *pi_nb_wanted_pids, uin
    j = 0;
    while ((p_es = pmt_get_es(p_pmt, j)) != (uint8_t *) 0) {
       j++;
-      if (this->PIDWouldBeSelected(p_es)) {
+
+      uint16_t i_pid = pmtn_get_pid(p_es);
+      bool b_select;
+      if (i_nb_pids) {
+         b_select = this->IsIn(pi_pids, i_nb_pids, i_pid);
+      } else {
+         b_select = this->PIDWouldBeSelected(p_es);
+         if (b_select) {
+            *ppi_wanted_pids = (uint16_t *)::realloc(*ppi_wanted_pids, (*pi_nb_wanted_pids + 1) * sizeof(uint16_t));
+            (*ppi_wanted_pids)[(*pi_nb_wanted_pids)++] = i_pid;
+         }
+      }
+
+      if (b_select && b_enable_ecm) {
+         uint8_t k = 0;
+         while ((p_desc = descs_get_desc(pmtn_get_descs(p_es), k++)) != NULL) {
+            if (desc_get_tag(p_desc) != 0x09 || !desc09_validate(p_desc))
+               continue;
+            *ppi_wanted_pids = (uint16_t *)::realloc(*ppi_wanted_pids, (*pi_nb_wanted_pids + 1) * sizeof(uint16_t));
+            (*ppi_wanted_pids)[(*pi_nb_wanted_pids)++] = desc09_get_pid(p_desc);
+         }
+      }
+   }
+   if (b_enable_ecm) {
+      j = 0;
+      while ((p_desc = descs_get_desc(pmt_get_descs(p_pmt), j++)) != NULL) {
+         if (desc_get_tag(p_desc) != 0x09 || !desc09_validate(p_desc))
+            continue;
          *ppi_wanted_pids = (uint16_t *)realloc(*ppi_wanted_pids, (*pi_nb_wanted_pids + 1) * sizeof(uint16_t));
-         (*ppi_wanted_pids)[(*pi_nb_wanted_pids)++] = pmtn_get_pid(p_es);
+         (*ppi_wanted_pids)[(*pi_nb_wanted_pids)++] = desc09_get_pid(p_desc);
       }
    }
 
    if (i_pcr_pid != PADDING_PID && i_pcr_pid != i_pmt_pid && !this->IsIn(*ppi_wanted_pids, *pi_nb_wanted_pids, i_pcr_pid)) {
       *ppi_wanted_pids = (uint16_t *)realloc(*ppi_wanted_pids, (*pi_nb_wanted_pids + 1) * sizeof(uint16_t));
       (*ppi_wanted_pids)[(*pi_nb_wanted_pids)++] = i_pcr_pid;
+      /* We only need the PCR packets of this stream (incomplete) */
+      *pi_wanted_pcr_pid = i_pcr_pid;
+      cLbugf(cL::dbg_dvb, "Requesting partial PCR PID %"PRIu16, i_pcr_pid);
    }
 }
 
@@ -1008,10 +1084,16 @@ void cLdvbdemux::SendSDT(mtime_t i_dts)
    }
 }
 
+bool cLdvbdemux::handle_epg(int i_table_id)
+{
+    return (i_table_id == EIT_TABLE_ID_PF_ACTUAL || (i_table_id >= EIT_TABLE_ID_SCHED_ACTUAL_FIRST && i_table_id <= EIT_TABLE_ID_SCHED_ACTUAL_LAST));
+}
+
 void cLdvbdemux::SendEIT(sid_t *p_sid, mtime_t i_dts, uint8_t *p_eit)
 {
    uint8_t i_table_id = psi_get_tableid(p_eit);
-   bool b_epg = i_table_id >= EIT_TABLE_ID_SCHED_ACTUAL_FIRST && i_table_id <= EIT_TABLE_ID_SCHED_ACTUAL_LAST;
+   bool b_epg = handle_epg(i_table_id);
+   uint16_t i_onid = eit_get_onid(p_eit);
 
    for (int i = 0; i < this->i_nb_outputs; i++) {
       output_t *p_output = this->pp_outputs[i];
@@ -1025,9 +1107,15 @@ void cLdvbdemux::SendEIT(sid_t *p_sid, mtime_t i_dts, uint8_t *p_eit)
             eit_set_sid(p_eit, p_output->config.i_sid);
          }
 
+         if (p_output->config.i_onid)
+             eit_set_onid(p_eit, p_output->config.i_onid);
+
          psi_set_crc(p_eit);
 
         this->OutputPSISection(p_output, p_eit, EIT_PID, &p_output->i_eit_cc, i_dts, &p_output->p_eit_ts_buffer, &p_output->i_eit_ts_buffer_offset);
+
+         if (p_output->config.i_onid)
+            eit_set_onid(p_eit, i_onid);
       }
    }
 }
@@ -1277,7 +1365,11 @@ void cLdvbdemux::NewNIT(output_t *p_output)
    p_ts = nit_get_ts(p, 0);
    nitn_init(p_ts);
    nitn_set_tsid(p_ts, p_output->i_tsid);
-   nitn_set_onid(p_ts, p_output->config.i_network_id);
+   if (p_output->config.i_onid) {
+      nitn_set_onid(p_ts, p_output->config.i_onid);
+   } else {
+      nitn_set_onid(p_ts, p_output->config.i_network_id);
+   }
    nitn_set_desclength(p_ts, 0);
 
    p_ts = nit_get_ts(p, 1);
@@ -1322,7 +1414,11 @@ void cLdvbdemux::NewSDT(output_t *p_output)
    psi_set_current(p);
    psi_set_section(p, 0);
    psi_set_lastsection(p, 0);
-   sdt_set_onid(p, sdt_get_onid(psi_table_get_section(this->pp_current_sdt_sections, 0)));
+   if ( p_output->config.i_onid ) {
+      sdt_set_onid(p, p_output->config.i_onid);
+   } else {
+      sdt_set_onid(p, sdt_get_onid(psi_table_get_section(this->pp_current_sdt_sections, 0)));
+   }
 
    p_service = sdt_get_service(p, 0);
    sdtn_init(p_service);
@@ -1333,15 +1429,12 @@ void cLdvbdemux::NewSDT(output_t *p_output)
       sdtn_set_sid(p_service, p_output->config.i_sid);
    }
 
-   if ((p_output->config.i_config & OUTPUT_EPG) == OUTPUT_EPG) {
-      sdtn_set_eitschedule(p_service);
+    /* We always forward EITp/f */
+   if (sdtn_get_eitpresent(p_current_service))
       sdtn_set_eitpresent(p_service);
-   } else {
-      if (sdtn_get_eitschedule(p_current_service))
-         sdtn_set_eitschedule(p_service);
-      if (sdtn_get_eitpresent(p_current_service))
-         sdtn_set_eitpresent(p_service);
-   }
+
+   if ((p_output->config.i_config & OUTPUT_EPG) == OUTPUT_EPG && sdtn_get_eitschedule(p_current_service))
+      sdtn_set_eitschedule(p_service);
 
    sdtn_set_running(p_service, sdtn_get_running(p_current_service));
    /* Do not set free_ca */
@@ -1616,6 +1709,10 @@ void cLdvbdemux::DeleteProgram(uint16_t i_sid, uint16_t i_pid)
    }
    p_sid->i_sid = 0;
    p_sid->i_pmt_pid = 0;
+   for (uint8_t r = 0; r < MAX_EIT_TABLES; r++) {
+      psi_table_free(p_sid->eit_table[r].data);
+      psi_table_init(p_sid->eit_table[r].data);
+   }
 }
 
 void cLdvbdemux::HandlePAT(mtime_t i_dts)
@@ -1684,6 +1781,9 @@ void cLdvbdemux::HandlePAT(mtime_t i_dts)
             if (p_sid == (sid_t *) 0) {
                p_sid = cLmalloc(sid_t, 1);
                p_sid->p_current_pmt = (uint8_t *) 0;
+               for (uint8_t r = 0; r < MAX_EIT_TABLES; r++) {
+                  psi_table_init(p_sid->eit_table[r].data);
+               }
                this->i_nb_sids++;
                this->pp_sids = (sid_t **)realloc(this->pp_sids, sizeof(sid_t *) * this->i_nb_sids);
                this->pp_sids[this->i_nb_sids - 1] = p_sid;
@@ -1887,6 +1987,7 @@ void cLdvbdemux::HandlePMT(uint16_t i_pid, uint8_t *p_pmt, mtime_t i_dts)
    sid_t *p_sid;
    bool b_needs_descrambling, b_needed_descrambling, b_is_selected;
    uint8_t pid_map[MAX_PIDS];
+   uint16_t i_pcr_pid;
 
    p_sid = this->FindSID(i_sid);
    if (p_sid == (sid_t *) 0) {
@@ -1930,6 +2031,12 @@ void cLdvbdemux::HandlePMT(uint16_t i_pid, uint8_t *p_pmt, mtime_t i_dts)
 
    this->mark_pmt_pids(p_pmt, pid_map, 0x01);
 
+   i_pcr_pid = pmt_get_pcrpid(p_pmt);
+   for (int i = 0; i < i_nb_outputs; i++) {
+      if ((pp_outputs[i]->config.i_config & OUTPUT_VALID) && pp_outputs[i]->config.i_sid == i_sid)
+          pp_outputs[i]->i_pcr_pid = 0;
+   }
+
    /* Start to stream PIDs */
    for (int pid = 0; pid < MAX_PIDS; pid++) {
       /* The pid does not exist in the old PMT and in the new PMT. Ignore this pid. */
@@ -1943,7 +2050,7 @@ void cLdvbdemux::HandlePMT(uint16_t i_pid, uint8_t *p_pmt, mtime_t i_dts)
             this->UnselectPID(i_sid, pid);
             break;
          case 0x01: /* The pid exists in new PMT. Select it. */
-            this->SelectPID(i_sid, pid);
+            this->SelectPID(i_sid, pid, pid == i_pcr_pid);
             break;
       }
    }
@@ -1963,7 +2070,7 @@ void cLdvbdemux::HandlePMT(uint16_t i_pid, uint8_t *p_pmt, mtime_t i_dts)
 
    pmt_print(p_pmt, cLdvbdemux::debug_cb, this, cLdvboutput::iconv_cb, this, PRINT_TEXT);
 
-   out_pmt:
+out_pmt:
    this->SendPMT(p_sid, i_dts);
 }
 
@@ -2089,10 +2196,111 @@ void cLdvbdemux::HandleSDTSection(uint16_t i_pid, uint8_t *p_section, mtime_t i_
    this->HandleSDT(i_dts);
 }
 
+void cLdvbdemux::HandleATSCSection(uint16_t i_pid, uint8_t *p_section, mtime_t i_dts)
+{
+   uint8_t *buf = p_section;
+   int section_length = getBits(buf, 12, 12);
+   int table_id_ext = getBits(buf, 24, 16);
+   int section_version_number = getBits(buf, 42, 5);
+   buf += 8;
+   section_length -= CRC_LEN;
+   section_length -= 5;
+   if (section_length < 0) {
+      cLbugf(cL::dbg_low, "truncated ATSC section on PID %hu, len(%d)", i_pid, section_length + CRC_LEN);
+      return;
+   }
+
+   uint8_t *pv_sdt = (uint8_t *) 0;
+   pv_sdt = cLmalloc(uint8_t, (PSI_MAX_SIZE + PSI_HEADER_SIZE));
+   memset(pv_sdt, 0, (PSI_MAX_SIZE + PSI_HEADER_SIZE) * sizeof(uint8_t));
+   sdt_init(pv_sdt, true);
+   sdt_set_length(pv_sdt, PSI_MAX_SIZE);
+   sdt_set_tsid(pv_sdt, table_id_ext);
+   psi_set_version(pv_sdt, section_version_number);
+   psi_set_current(pv_sdt);
+   psi_set_section(pv_sdt, 0);
+   psi_set_lastsection(pv_sdt, 0);
+
+   int num_channels_in_section = buf[1];
+   int pseudo_id = 0xffff;
+   int numscv = 0;
+   uint8_t *b = buf + 2;
+   for (int i = 0; i < num_channels_in_section; i++) {
+      struct tvct_channel ch = read_tvct_channel(b);
+      switch (ch.service_type) {
+         case 0x01:
+            cLbug(cL::dbg_low, "analog channels won't be put info channels.conf\n");
+            break;
+         case 0x02: /* ATSC TV */
+         case 0x03: /* ATSC Radio */
+            break;
+         case 0x04: /* ATSC Data */
+         default:
+            continue;
+      }
+      if (ch.program_number == 0)
+         ch.program_number = --pseudo_id;
+      char sname[8];
+      sname[0] = (char)ch.short_name0;
+      sname[1] = (char)ch.short_name1;
+      sname[2] = (char)ch.short_name2;
+      sname[3] = (char)ch.short_name3;
+      sname[4] = (char)ch.short_name4;
+      sname[5] = (char)ch.short_name5;
+      sname[6] = (char)ch.short_name6;
+      sname[7] = 0;
+
+      if (ch.hidden) {
+         cLbug(cL::dbg_dvb, "service is not running, pseudo program_number.");
+      } else {
+         uint8_t *p_service = sdt_get_service(pv_sdt, numscv);
+         sdtn_init(p_service);
+         sdtn_set_sid(p_service, ch.program_number);
+
+         sdtn_set_running(p_service, 4);
+         sdtn_set_desclength(p_service, 2);
+
+         uint8_t *p_desc = descs_get_desc(sdtn_get_descs(p_service), 0);
+         uint8_t i_desc_len = 3;
+         desc48_init(p_desc);
+
+         desc48_set_type(p_desc, (ch.service_type == 3) ? 2 : (ch.service_type == 2 ? 1 : ch.service_type));
+         desc48_set_provider(p_desc, (uint8_t *)sname, 7);
+         i_desc_len += 7;
+         desc48_set_service(p_desc, (uint8_t *)sname, 7);
+         i_desc_len += 7;
+         desc_set_length(p_desc, i_desc_len);
+         int i_total_desc_len = DESC_HEADER_SIZE + i_desc_len;
+         p_desc += DESC_HEADER_SIZE + i_desc_len;
+         sdtn_set_desclength(p_service, i_total_desc_len);
+         ++numscv;
+      }
+      b += 32 + ch.descriptors_length;
+   }
+
+   uint8_t *p_service = sdt_get_service(pv_sdt, numscv);
+   if (p_service == (uint8_t *) 0) {
+      sdt_set_length(pv_sdt, 0);
+   } else {
+      sdt_set_length(pv_sdt, p_service - pv_sdt - SDT_HEADER_SIZE);
+   }
+   psi_set_crc(pv_sdt);
+   if (!psi_table_section(this->pp_next_sdt_sections, pv_sdt)) {
+      ::free(pv_sdt);
+      return;
+   }
+   this->HandleSDT(i_dts);
+
+   return;
+}
+
 void cLdvbdemux::HandleEIT(uint16_t i_pid, uint8_t *p_eit, mtime_t i_dts)
 {
+   uint8_t i_table_id = psi_get_tableid(p_eit);
    uint16_t i_sid = eit_get_sid(p_eit);
    sid_t *p_sid;
+   uint8_t i_section;
+   uint8_t eit_table_id = 0;
 
    p_sid = this->FindSID(i_sid);
    if (p_sid == (sid_t *) 0) {
@@ -2107,14 +2315,45 @@ void cLdvbdemux::HandleEIT(uint16_t i_pid, uint8_t *p_eit, mtime_t i_dts)
       return;
    }
 
+    bool b_epg = this->handle_epg(i_table_id);
+    if (!b_epg)
+        goto out_eit;
+
+   /* We do not use psi_table_* primitives as the spec allows for holes in
+    * section numbering, and there is no sure way to know whether you have
+    * gathered all sections. */
+   i_section = psi_get_section(p_eit);
+   eit_table_id = i_table_id - EIT_TABLE_ID_PF_ACTUAL;
+   if (eit_table_id >= MAX_EIT_TABLES)
+      goto out_eit;
+   if (p_sid->eit_table[eit_table_id].data[i_section] != NULL && psi_compare(p_sid->eit_table[eit_table_id].data[i_section], p_eit)) {
+       /* Identical section. Shortcut. */
+       ::free(p_sid->eit_table[eit_table_id].data[i_section]);
+       p_sid->eit_table[eit_table_id].data[i_section] = p_eit;
+       goto out_eit;
+   }
+
+   ::free(p_sid->eit_table[eit_table_id].data[i_section]);
+   p_sid->eit_table[eit_table_id].data[i_section] = p_eit;
+
+   /*
+   eit_print(p_eit, msg_Dbg, NULL, demux_Iconv, NULL, PRINT_TEXT);
+   if (b_print_enabled) {
+      eit_print(p_eit, demux_Print, NULL, demux_Iconv, NULL, i_print_type);
+      if (i_print_type == PRINT_XML)
+         fprintf(print_fh, "\n");
+   }
+   */
+
+out_eit:
    this->SendEIT(p_sid, i_dts, p_eit);
-   ::free(p_eit);
+   if (!b_epg)
+      ::free(p_eit);
 }
 
 void cLdvbdemux::HandleSection(uint16_t i_pid, uint8_t *p_section, mtime_t i_dts)
 {
    uint8_t i_table_id = psi_get_tableid(p_section);
-
    if (!psi_validate(p_section)) {
       cLbugf(cL::dbg_dvb, "invalid section on PID %hu\n", i_pid);
       ::free(p_section);
@@ -2149,8 +2388,14 @@ void cLdvbdemux::HandleSection(uint16_t i_pid, uint8_t *p_section, mtime_t i_dts
          this->HandleSDTSection(i_pid, p_section, i_dts);
          break;
 
+      case TID_ATSC_CVT1:
+      case TID_ATSC_CVT2:
+         this->HandleATSCSection(i_pid, p_section, i_dts);
+         ::free(p_section);
+         break;
+
       default:
-         if (i_table_id == EIT_TABLE_ID_PF_ACTUAL || (i_table_id >= EIT_TABLE_ID_SCHED_ACTUAL_FIRST && i_table_id <= EIT_TABLE_ID_SCHED_ACTUAL_LAST)) {
+         if (handle_epg(i_table_id)) {
             this->HandleEIT(i_pid, p_section, i_dts);
             break;
          }
@@ -2164,11 +2409,13 @@ void cLdvbdemux::HandlePSIPacket(uint8_t *p_ts, mtime_t i_dts)
    uint16_t i_pid = ts_get_pid(p_ts);
    ts_pid_t *p_pid = &this->p_pids[i_pid];
    uint8_t i_cc = ts_get_cc(p_ts);
+   if (ts_check_duplicate(i_cc, p_pid->i_last_cc) || !ts_has_payload(p_ts)) {
+      cLbugf(cL::dbg_dvb, "PSI not processed on PID %hu\n", i_pid);
+      return;
+   }
+
    const uint8_t *p_payload;
    uint8_t i_length;
-
-   if (ts_check_duplicate(i_cc, p_pid->i_last_cc) || !ts_has_payload(p_ts))
-      return;
 
    if (p_pid->i_last_cc != -1 && ts_check_discontinuity(i_cc, p_pid->i_last_cc))
       psi_assemble_reset(&p_pid->p_psi_buffer, &p_pid->i_psi_buffer_used);
@@ -2467,6 +2714,62 @@ uint8_t *cLdvbdemux::demux_get_current_packed_NIT(unsigned int *pi_pack_size)
 uint8_t *cLdvbdemux::demux_get_current_packed_SDT(unsigned int *pi_pack_size)
 {
    return this->psi_pack_sections(this->pp_current_sdt_sections, pi_pack_size);
+}
+
+uint8_t *cLdvbdemux::demux_get_packed_EIT(uint16_t i_sid, uint8_t start_table, uint8_t end_table, unsigned int *eit_size)
+{
+   *eit_size = 0;
+   sid_t *p_sid = FindSID(i_sid);
+   if (p_sid == NULL)
+      return NULL;
+
+   /* Calculate eit table size (sum of all sections in all tables between start_start and end_table) */
+   for (int i = start_table; i <= end_table; i++) {
+      uint8_t eit_table_idx = i - EIT_TABLE_ID_PF_ACTUAL;
+      if (eit_table_idx >= MAX_EIT_TABLES)
+         continue;
+      uint8_t **eit_sections = p_sid->eit_table[eit_table_idx].data;
+      for (int r = 0; r < PSI_TABLE_MAX_SECTIONS; r++) {
+         uint8_t *p_eit = eit_sections[r];
+         if (!p_eit)
+            continue;
+         uint16_t psi_length = psi_get_length(p_eit) + PSI_HEADER_SIZE;
+         *eit_size += psi_length;
+      }
+   }
+
+   uint8_t *p_flat_section = cLmalloc(uint8_t, *eit_size);
+   if (!p_flat_section)
+      return (uint8_t *) 0;
+
+   /* Copy sections */
+   unsigned int i_pos = 0;
+   for (int i = start_table; i <= end_table; i++) {
+      uint8_t eit_table_idx = i - EIT_TABLE_ID_PF_ACTUAL;
+      if (eit_table_idx >= MAX_EIT_TABLES)
+         continue;
+      uint8_t **eit_sections = p_sid->eit_table[eit_table_idx].data;
+      for (int r = 0; r < PSI_TABLE_MAX_SECTIONS; r++) {
+         uint8_t *p_eit = eit_sections[r];
+         if (!p_eit)
+            continue;
+         uint16_t psi_length = psi_get_length(p_eit) + PSI_HEADER_SIZE;
+         memcpy(p_flat_section + i_pos, p_eit, psi_length);
+         i_pos += psi_length;
+         /* eit_print( p_eit, msg_Dbg, NULL, demux_Iconv, NULL, PRINT_TEXT ); */
+      }
+   }
+   return p_flat_section;
+}
+
+uint8_t *cLdvbdemux::demux_get_packed_EIT_pf(uint16_t service_id, unsigned int *pi_pack_size)
+{
+   return demux_get_packed_EIT(service_id, EIT_TABLE_ID_PF_ACTUAL, EIT_TABLE_ID_PF_ACTUAL, pi_pack_size);
+}
+
+uint8_t *cLdvbdemux::demux_get_packed_EIT_schedule(uint16_t service_id, unsigned int *pi_pack_size)
+{
+   return demux_get_packed_EIT(service_id, EIT_TABLE_ID_SCHED_ACTUAL_FIRST, EIT_TABLE_ID_SCHED_ACTUAL_LAST, pi_pack_size);
 }
 
 uint8_t *cLdvbdemux::demux_get_packed_PMT(uint16_t i_sid, unsigned int *pi_pack_size)

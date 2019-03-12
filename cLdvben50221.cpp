@@ -1,7 +1,6 @@
 /*
  * cLdvben50221.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * en50221.c : implementation of the transport, session and applications
@@ -36,12 +35,6 @@
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <errno.h>
-
-/* DVB Card Drivers */
-#include <linux/dvb/version.h>
-#include <linux/dvb/dmx.h>
-#include <linux/dvb/frontend.h>
-#include <linux/dvb/ca.h>
 
 #include <bitstream/mpeg/psi.h>
 #include <bitstream/dvb/ci.h>

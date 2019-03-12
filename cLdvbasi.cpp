@@ -1,7 +1,6 @@
 /*
  * cLdvbasi.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * asi.c: support for Computer Modules ASI cards

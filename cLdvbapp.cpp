@@ -1,7 +1,6 @@
 /*
  * cLdvbapp.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * dvblast.c
@@ -99,7 +98,7 @@ int cLdvbapp::cliusage()
          "[-u] [-w] [-U] [-L <latency>] [-E <retention>] [-d <dest IP>[<:port>][/<opts>]*] [-3] "
          "[-z] [-C [-e] [-M <network name>] [-N <network ID>]] [-T] [-j <system charset>] "
          "[-W] [-Y] [-l] [-g <logger ident>] [-Z <mrtg file>] [-V] [-h] [-B <provider_name>] "
-         "[-1 <mis_id>] [-2 <size>] [-5 <DVBS|DVBS2|DVBC_ANNEX_A|DVBT|ATSC>] -y <ca_dev_number> "
+         "[-1 <mis_id>] [-2 <size>] [-5 <DVBS|DVBS2|DVBC_ANNEX_A|DVBC_ANNEX_B|DVBT|DVBT2|ATSC|ISDBT>] -y <ca_dev_number> "
          "[-J <DVB charset>] [-Q <quit timeout>] [-0 pid_mapping] [-x <text|xml>]"
          "[-6 <print period>] [-7 <ES timeout>]\n");
    cLbug(cL::dbg_dvb, "Input:\n");
@@ -108,26 +107,33 @@ int cLdvbapp::cliusage()
 #endif
 #ifdef HAVE_CLDVBHW
    cLbug(cL::dbg_dvb, "  -a --adapter          read packets from a Linux-DVB adapter (typically 0-n)\n");
-   cLbug(cL::dbg_dvb, "  -b --bandwidth        frontend bandwith\n");
+   cLbug(cL::dbg_dvb, "  -b --bandwidth        frontend bandwidth\n");
 #endif
    cLbug(cL::dbg_dvb, "  -D --rtp-input        read packets from a multicast address instead of a DVB card\n");
 #ifdef HAVE_CLDVBHW
    cLbug(cL::dbg_dvb, "  -5 --delsys           delivery system\n");
-   cLbug(cL::dbg_dvb, "    DVBS|DVBS2|DVBC_ANNEX_A|DVBT|ATSC (default guessed)\n");
+   cLbug(cL::dbg_dvb, "    DVBS|DVBS2|DVBC_ANNEX_A|DVBT|DVBT2|ATSC|ISDBT|DVBC_ANNEX_B(ATSC-C/QAMB) (default guessed)\n");
    cLbug(cL::dbg_dvb, "  -f --frequency        frontend frequency\n");
+   cLbug(cL::dbg_dvb, "  -8 --lnb-type <type>  Set LNB type')\n");
+   cLbug(cL::dbg_dvb, "        universal old-sky (default: universal)\n");
+   cLbug(cL::dbg_dvb, "  -9 --dvb-plp-id <number> Switch PLP of the DVB-T2 transmission (default: 0)\n");
    cLbug(cL::dbg_dvb, "  -F --fec-inner        Forward Error Correction (FEC Inner)\n");
    cLbug(cL::dbg_dvb, "    DVB-S2 0|12|23|34|35|56|78|89|910|999 (default auto: 999)\n");
    cLbug(cL::dbg_dvb, "  -I --inversion        Inversion (-1 auto, 0 off, 1 on)\n");
    cLbug(cL::dbg_dvb, "  -m --modulation       Modulation type\n");
    cLbug(cL::dbg_dvb, "    DVB-C  qpsk|qam_16|qam_32|qam_64|qam_128|qam_256 (default qam_auto)\n");
    cLbug(cL::dbg_dvb, "    DVB-T  qam_16|qam_32|qam_64|qam_128|qam_256 (default qam_auto)\n");
-   cLbug(cL::dbg_dvb, "    DVB-S2 qpsk|psk_8 (default legacy DVB-S)\n");
+   cLbug(cL::dbg_dvb, "    DVB-S2 qpsk|psk_8|apsk_16|apsk_32 (default legacy DVB-S)\n");
    cLbug(cL::dbg_dvb, "  -n --frontend-number <frontend number>\n");
    cLbug(cL::dbg_dvb, "  -p --force-pulse      force 22kHz pulses for high-band selection (DVB-S)\n");
    cLbug(cL::dbg_dvb, "  -P --pilot            DVB-S2 Pilot (-1 auto, 0 off, 1 on)\n");
    cLbug(cL::dbg_dvb, "  -R --rolloff          DVB-S2 Rolloff value\n");
    cLbug(cL::dbg_dvb, "    DVB-S2 35=0.35|25=0.25|20=0.20|0=AUTO (default: 35)\n");
-   cLbug(cL::dbg_dvb, "  -1 --multistream-id   Set stream ID (0-255, default: 0)\n");
+   cLbug(cL::dbg_dvb, "  -1 --multistream-id   Set stream ID (0-2147483648, default: 0).\n");
+   cLbug(cL::dbg_dvb, "  --multistream-id-pls-mode   Set multistream PLS mode (ROOT, GOLD, COMBO, default: ROOT)\n");
+   cLbug(cL::dbg_dvb, "  --multistream-id-pls-code   Set multistream PLS code (0-262143, default: 0)\n");
+   cLbug(cL::dbg_dvb, "  --multistream-id-is-id      Set multistream IS id (0-255, default: 0)\n");
+
    cLbug(cL::dbg_dvb, "  -K --fec-lp           DVB-T low priority FEC (default auto)\n");
    cLbug(cL::dbg_dvb, "  -G --guard            DVB-T guard interval\n");
    cLbug(cL::dbg_dvb, "    DVB-T  32 (1/32)|16 (1/16)|8 (1/8)|4 (1/4)|-1 (auto, default)\n");
@@ -135,7 +141,7 @@ int cLdvbapp::cliusage()
    cLbug(cL::dbg_dvb, "  -X --transmission     DVB-T transmission (2, 4, 8 or -1 auto, default)\n");
    cLbug(cL::dbg_dvb, "  -s --symbol-rate\n");
    cLbug(cL::dbg_dvb, "  -S --diseqc           satellite number for diseqc (0: no diseqc, 1-4, A or B)\n");
-   cLbug(cL::dbg_dvb, "  -k --uncommitted      port number for uncommitted diseqc (0: no uncommitted diseqc, 1-4)\n");
+   cLbug(cL::dbg_dvb, "  -k --uncommitted      port number for uncommitted DiSEqC switch (0: no uncommitted DiSEqC switch, 1-16)\n");
    cLbug(cL::dbg_dvb, "  -u --budget-mode      turn on budget mode (no hardware PID filtering)\n");
    cLbug(cL::dbg_dvb, "  -v --voltage          voltage to apply to the LNB (QPSK)\n");
    cLbug(cL::dbg_dvb, "  -w --select-pmts      set a PID filter on all PMTs (auto on, when config file is used)\n");
@@ -165,8 +171,8 @@ int cLdvbapp::cliusage()
    cLbug(cL::dbg_dvb, "Misc:\n");
    cLbug(cL::dbg_dvb, "  -h --help             display this full help\n");
    cLbug(cL::dbg_dvb, "  -i --priority <RT priority>\n");
-   cLbug(cL::dbg_dvb, "  -j --system-charset   character set used for printing messages (default UTF-8)\n");
-   cLbug(cL::dbg_dvb, "  -J --dvb-charset      character set used in output DVB tables (default UTF-8)\n");
+   cLbug(cL::dbg_dvb, "  -j --system-charset   character set used for printing messages (default UTF-8//IGNORE)\n");
+   cLbug(cL::dbg_dvb, "  -J --dvb-charset      character set used in output DVB tables (default UTF-8//IGNORE)\n");
 #ifdef HAVE_CLDVBHW
    cLbug(cL::dbg_dvb, "  -Q --quit-timeout     when locked, quit after this delay (in ms), or after the first lock timeout\n");
 #endif
@@ -180,7 +186,7 @@ int cLdvbapp::cliusage()
 
 int cLdvbapp::cli(int i_argc, char **pp_argv)
 {
-   const char *network_name = "DVBlast - http://www.videolan.org/projects/dvblast.html";
+   const char *network_name = "DVBlast - videolan.org";
    const char *provider_name = (const char *) 0;
    int c;
 
@@ -188,7 +194,7 @@ int cLdvbapp::cli(int i_argc, char **pp_argv)
       return this->cliusage();
 
    /*
-    * The only short options left are: 489
+    * The only short options left are: 48
     * Use them wisely.
     */
    static const struct option long_options[] =
@@ -201,7 +207,9 @@ int cLdvbapp::cli(int i_argc, char **pp_argv)
          { "adapter",         required_argument, NULL, 'a' },
          { "frontend-number", required_argument, NULL, 'n' },
          { "delsys",          required_argument, NULL, '5' },
+         { "dvb-plp-id",      required_argument, NULL, '9' },
          { "frequency",       required_argument, NULL, 'f' },
+         { "lnb-type",        required_argument, NULL, '8' },
          { "fec-inner",       required_argument, NULL, 'F' },
          { "rolloff",         required_argument, NULL, 'R' },
          { "symbol-rate",     required_argument, NULL, 's' },
@@ -214,6 +222,9 @@ int cLdvbapp::cli(int i_argc, char **pp_argv)
          { "modulation",      required_argument, NULL, 'm' },
          { "pilot",           required_argument, NULL, 'P' },
          { "multistream-id",  required_argument, NULL, '1' },
+         { "multistream-id-pls-mode",  required_argument, NULL, 0x100001 },
+         { "multistream-id-pls-code",  required_argument, NULL, 0x100002 },
+         { "multistream-id-is-id"   ,  required_argument, NULL, 0x100003 },
          { "fec-lp",          required_argument, NULL, 'K' },
          { "guard",           required_argument, NULL, 'G' },
          { "hierarchy",       required_argument, NULL, 'H' },
@@ -259,7 +270,7 @@ int cLdvbapp::cli(int i_argc, char **pp_argv)
    cLdvbdev *pdev = (cLdvbdev *) 0;
 #endif
 
-   const char *ostr = "q::c:r:t:o:i:a:n:5:f:F:R:s:S:k:v:pb:I:m:P:K:G:H:X:O:uwUTL:E:d:3D:A:lg:zCWYeM:N:j:J:B:x:Q:6:7:hVZ:y:0:1:2:";
+   const char *ostr = "q::c:r:t:o:i:a:n:5:f:F:R:s:S:k:v:pb:I:m:P:K:G:H:X:O:uwUTL:E:d:3D:A:lg:zCWYeM:N:j:J:B:x:Q:6:7:hVZ:y:0:1:2:9:";
 
    while ((c = getopt_long(i_argc, pp_argv, ostr, long_options, NULL)) != -1) {
       switch (c) {
@@ -328,6 +339,12 @@ int cLdvbapp::cli(int i_argc, char **pp_argv)
             case '5':
                pdev->set_delivery_system(optarg);
                break;
+            case '9':
+               pdev->set_dvb_plp_id(strtol(optarg, (char **) 0, 0));
+               break;
+            case '8':
+               pdev->set_lnb_type(optarg);
+               break;
             case 'F':
                pdev->set_fec(strtol(optarg, (char **) 0, 0));
                break;
@@ -341,7 +358,7 @@ int cLdvbapp::cli(int i_argc, char **pp_argv)
                pdev->set_diseqc(strtol(optarg, (char **) 0, 16));
                break;
             case 'k':
-               pdev->set_diseqc_port(strtol(optarg, (char **) 0, 16));
+               pdev->set_diseqc_port(strtol(optarg, (char **) 0, 10));
                break;
             case 'v':
                pdev->set_voltage(strtol(optarg, (char **) 0, 0));
@@ -364,6 +381,24 @@ int cLdvbapp::cli(int i_argc, char **pp_argv)
             case '1':
                pdev->set_multistream_id(strtol(optarg, (char **) 0, 0));
                break;
+            case 0x100001: // --multistream-id-pls-mode
+               if (!pdev->set_mis_pls_mode(optarg)) {
+                  cLbugf(cL::dbg_low, "Invalid --multistream-id-pls-mode '%s', valid options are: ROOT GOLD COMBO", optarg);
+                  exit(1);
+               }
+               break;
+            case 0x100002: // --multistream-id-pls-code
+               if (!pdev->set_mis_pls_code(strtol(optarg, (char **) 0, 0))) {
+                  cLbugf(cL::dbg_low, "ERROR: Invalid --multistream-id-pls-code '%s', valid options are: 0-262143", optarg);
+                  exit(1);
+               }
+               break;
+            case 0x100003: // --multistream-id-is-id
+               if (!pdev->set_mis_is_id(strtol(optarg, (char **) 0, 0))) {
+                  cLbugf(cL::dbg_low, "ERROR: Invalid --multistream-id-is-id '%s', valid options are: 0-255", optarg);
+                  exit(1);
+               }
+              break;
             case 'K':
                pdev->set_lpfec(strtol(optarg, (char **) 0, 0));
                break;

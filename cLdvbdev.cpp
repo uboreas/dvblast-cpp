@@ -1,7 +1,6 @@
 /*
  * cLdvbdev.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * dvb.c: linux-dvb input for DVBlast
@@ -46,6 +45,7 @@ cLdvbdev::cLdvbdev()
    this->i_voltage = 13;
    this->b_tone = 0;
    this->i_bandwidth = 8;
+   this->dvb_plp_id = 0;
    this->i_inversion = -1;
    this->i_srate = 27500000;
    this->i_fec = 999;
@@ -62,6 +62,11 @@ cLdvbdev::cLdvbdev()
    this->i_hierarchy = -1;
    this->i_dvr_buffer_size = DVB_DVR_BUFFER_SIZE;
    this->i_frontend_timeout_duration = DEFAULT_FRONTEND_TIMEOUT;
+   this->psz_lnb_type = "universal";
+   this->psz_mis_pls_mode = "ROOT";
+   this->i_mis_pls_mode = 0;
+   this->i_mis_pls_code = 0;
+   this->i_mis_is_id = 0;
    cLbug(cL::dbg_high, "cLdvbdev created\n");
 }
 
@@ -89,6 +94,17 @@ void cLdvbdev::dev_ResendCAPMTs()
 
 void cLdvbdev::dev_Open()
 {
+   if (this->i_mis_pls_mode || this->i_mis_pls_code || this->i_mis_is_id) {
+      this->i_mis = (this->i_mis_pls_mode << 26 | this->i_mis_pls_code << 8 | this->i_mis_is_id);
+      cLbugf(cL::dbg_dvb, "multistream-id(%d, 0x%x) using pls-mode(%d), pls-code(%d), is-id(%d)", this->i_mis, this->i_mis, this->i_mis_pls_mode, this->i_mis_pls_code, this->i_mis_is_id);
+   } else
+   if (this->i_mis) {
+      this->i_mis_pls_mode = (this->i_mis >> 26) & 0x03;
+      this->i_mis_pls_code = (this->i_mis >> 8) & 0x3ffff;
+      this->i_mis_is_id = this->i_mis & 0xff;
+      cLbugf(cL::dbg_dvb, "multistream-id(%d, 0x%x) using pls-mode(%d), pls-code(%d), is-id(%d)", this->i_mis, this->i_mis, this->i_mis_pls_mode, this->i_mis_pls_code, this->i_mis_is_id);
+   }
+
    char psz_tmp[128];
 
    cLbugf(cL::dbg_dvb, "compiled with DVB API version %d.%d\n", DVB_API_VERSION, DVB_API_VERSION_MINOR);
@@ -349,7 +365,7 @@ void cLdvbdev::FrontendLockCb(void *loop, void *p, int revents)
    cLdvbdev *pobj = (cLdvbdev *) w->data;
 
    if (pobj->i_quit_timeout_duration) {
-      cLbug(cL::dbg_dvb, "no lock\n");
+      fprintf(stdout, "error: no lock\n");
       cLev_break(loop, 2); //EVBREAK_ALL
       return;
    }
@@ -382,33 +398,48 @@ int cLdvbdev::FrontendDoDiseqc(void)
 
    fe_tone = this->b_tone ? SEC_TONE_ON : SEC_TONE_OFF;
 
-   /* Automatic mode. */
-   if (this->i_frequency >= 950000 && this->i_frequency <= 2150000) {
-      cLbugf(cL::dbg_dvb, "frequency %d is in IF-band\n", this->i_frequency);
-      bis_frequency = this->i_frequency;
+   if (strcmp(this->psz_lnb_type, "universal" ) == 0) {
+      /* Automatic mode. */
+      if (this->i_frequency >= 950000 && this->i_frequency <= 2150000) {
+         cLbugf(cL::dbg_dvb, "frequency %d is in IF-band\n", this->i_frequency);
+         bis_frequency = this->i_frequency;
+      } else
+      if (this->i_frequency >= 2500000 && this->i_frequency <= 2700000) {
+         cLbugf(cL::dbg_dvb, "frequency %d is in S-band\n", this->i_frequency);
+         bis_frequency = 3650000 - this->i_frequency;
+      } else
+      if (this->i_frequency >= 3400000 && this->i_frequency <= 4200000) {
+         cLbugf(cL::dbg_dvb, "frequency %d is in C-band (lower)\n", this->i_frequency);
+         bis_frequency = 5150000 - this->i_frequency;
+      } else
+      if (this->i_frequency >= 4500000 && this->i_frequency <= 4800000) {
+         cLbugf(cL::dbg_dvb, "frequency %d is in C-band (higher)\n", this->i_frequency);
+         bis_frequency = 5950000 - this->i_frequency;
+      } else
+      if (this->i_frequency >= 10700000 && this->i_frequency < 11700000) {
+         cLbugf(cL::dbg_dvb, "frequency %d is in Ku-band (lower)\n", this->i_frequency);
+         bis_frequency = this->i_frequency - 9750000;
+      } else
+      if (this->i_frequency >= 11700000 && this->i_frequency <= 13250000) {
+         cLbugf(cL::dbg_dvb, "frequency %d is in Ku-band (higher)\n", this->i_frequency);
+         bis_frequency = this->i_frequency - 10600000;
+         fe_tone = SEC_TONE_ON;
+      } else {
+         cLbugf(cL::dbg_dvb, "frequency %d is out of any known band\n", this->i_frequency);
+         exit(1);
+      }
    } else
-   if (this->i_frequency >= 2500000 && this->i_frequency <= 2700000) {
-      cLbugf(cL::dbg_dvb, "frequency %d is in S-band\n", this->i_frequency);
-      bis_frequency = 3650000 - this->i_frequency;
-   } else
-   if (this->i_frequency >= 3400000 && this->i_frequency <= 4200000) {
-      cLbugf(cL::dbg_dvb, "frequency %d is in C-band (lower)\n", this->i_frequency);
-      bis_frequency = 5150000 - this->i_frequency;
-   } else
-   if (this->i_frequency >= 4500000 && this->i_frequency <= 4800000) {
-      cLbugf(cL::dbg_dvb, "frequency %d is in C-band (higher)\n", this->i_frequency);
-      bis_frequency = 5950000 - this->i_frequency;
-   } else
-   if (this->i_frequency >= 10700000 && this->i_frequency < 11700000) {
-      cLbugf(cL::dbg_dvb, "frequency %d is in Ku-band (lower)\n", this->i_frequency);
-      bis_frequency = this->i_frequency - 9750000;
-   } else
-   if (this->i_frequency >= 11700000 && this->i_frequency <= 13250000) {
-      cLbugf(cL::dbg_dvb, "frequency %d is in Ku-band (higher)\n", this->i_frequency);
-      bis_frequency = this->i_frequency - 10600000;
-      fe_tone = SEC_TONE_ON;
+   if (strcmp(this->psz_lnb_type, "old-sky") == 0) {
+      if (this->i_frequency >= 11700000 && this->i_frequency <= 13250000) {
+         cLbugf(cL::dbg_dvb, "frequency %d is in Ku-band (higher)", this->i_frequency);
+         bis_frequency = i_frequency - 11300000;
+         fe_tone = SEC_TONE_ON;
+      } else {
+         cLbugf(cL::dbg_dvb, "frequency %d is out of any known band", this->i_frequency);
+         exit(1);
+      }
    } else {
-      cLbugf(cL::dbg_dvb, "frequency %d is out of any known band\n", this->i_frequency);
+      cLbugf(cL::dbg_dvb, "lnb-type '%s' is not known. Valid type: universal old-sky\n", this->psz_lnb_type);
       exit(1);
    }
 
@@ -444,11 +475,9 @@ int cLdvbdev::FrontendDoDiseqc(void)
             | (fe_voltage == SEC_VOLTAGE_13 ? 0 : 2)
             | (fe_tone == SEC_TONE_ON ? 1 : 0);
 
-      if (this->i_uncommitted > 0 && this->i_uncommitted < 5) {
+      if (this->i_uncommitted > 0 && this->i_uncommitted < 17) {
          uncmd.msg[3] = 0xf0 /* reset bits */
-               | ((this->i_uncommitted - 1) << 2)
-               | (fe_voltage == SEC_VOLTAGE_13 ? 0 : 2)
-               | (fe_tone == SEC_TONE_ON ? 1 : 0);
+               | (i_uncommitted - 1);
          if(ioctl(this->i_frontend, FE_DISEQC_SEND_MASTER_CMD, &uncmd) < 0) {
             cLbugf(cL::dbg_dvb, "ioctl FE_SEND_MASTER_CMD failed (%s)\n", strerror(errno));
             exit(1);
@@ -493,7 +522,8 @@ int cLdvbdev::FrontendDoDiseqc(void)
 
    this->msleep(100000); /* ... */
 
-   cLbugf(cL::dbg_dvb, "configuring LNB to v=%d p=%d satnum=%x uncommitted=%x\n", this->i_voltage, this->b_tone, this->i_satnum, this->i_uncommitted);
+   cLbugf(cL::dbg_dvb, "configuring LNB to v=%d p=%d satnum=%x uncommitted=%x lnb-type=%s bis_frequency=%d\n",
+      this->i_voltage, this->b_tone, this->i_satnum, this->i_uncommitted, this->psz_lnb_type, bis_frequency);
    return bis_frequency;
 }
 
@@ -716,6 +746,7 @@ void cLdvbdev::FrontendInfo(struct dvb_frontend_info *info, uint32_t version, fe
    FRONTEND_INFO(info->caps, FE_CAN_2G_MODULATION, "2G_MODULATION")
 #endif
    FRONTEND_INFO(info->caps, FE_CAN_MULTISTREAM, "MULTISTREAM")
+   FRONTEND_INFO(info->caps, FE_CAN_TURBO_FEC, "TURBO_FEC")
    FRONTEND_INFO(info->caps, FE_NEEDS_BENDING, "NEEDS_BENDING")
    FRONTEND_INFO(info->caps, FE_CAN_RECOVER, "FE_CAN_RECOVER")
    FRONTEND_INFO(info->caps, FE_CAN_MUTE_TS, "FE_CAN_MUTE_TS")
@@ -773,11 +804,29 @@ void cLdvbdev::FrontendInfo(struct dvb_frontend_info *info, uint32_t version, fe
 #define FEC_INNER 5
 #define FEC_LP 6
 #define GUARD 7
-#define PILOT 7
 #define TRANSMISSION 8
-#define ROLLOFF 8
-#define MIS 9
+
 #define HIERARCHY 9
+#define PLP_ID 10
+
+#define IDX_DVBS2_PILOT     6
+#define IDX_DVBS2_ROLLOFF   7
+#define IDX_DVBS2_STREAM_ID 8
+
+//ISDBT
+#define ISDBT_BANDWIDTH 2
+#define ISDBT_LAYERA_FEC 4
+#define ISDBT_LAYERA_MODULATION 5
+#define ISDBT_LAYERA_SEGMENT_COUNT 6
+#define ISDBT_LAYERA_TIME_INTERLEAVING 7
+#define ISDBT_LAYERB_FEC 8
+#define ISDBT_LAYERB_MODULATION 9
+#define ISDBT_LAYERB_SEGMENT_COUNT 10
+#define ISDBT_LAYERB_TIME_INTERLEAVING 11
+#define ISDBT_LAYERC_FEC 12
+#define ISDBT_LAYERC_MODULATION 13
+#define ISDBT_LAYERC_SEGMENT_COUNT 14
+#define ISDBT_LAYERC_TIME_INTERLEAVING 15
 
 fe_delivery_system_t cLdvbdev::FrontendGuessSystem(fe_delivery_system_t *p_systems, int i_systems)
 {
@@ -796,8 +845,13 @@ fe_delivery_system_t cLdvbdev::FrontendGuessSystem(fe_delivery_system_t *p_syste
          return SYS_DVBC_ANNEX_B;
       if (!strcasecmp(this->psz_delsys, "DVBT"))
          return SYS_DVBT;
+      if (!strcasecmp(this->psz_delsys, "DVBT2"))
+         return SYS_DVBT2;
       if (!strcasecmp(this->psz_delsys, "ATSC"))
          return SYS_ATSC;
+      if (!strcasecmp(psz_delsys, "ISDBT"))
+         return SYS_ISDBT;
+
       cLbugf(cL::dbg_dvb, "unknown delivery system %s\n", this->psz_delsys);
       exit(1);
    }
@@ -825,6 +879,10 @@ fe_delivery_system_t cLdvbdev::FrontendGuessSystem(fe_delivery_system_t *p_syste
          case SYS_DVBT:
             if (this->i_frequency > 50000000)
                return SYS_DVBT;
+            break;
+         case SYS_DVBT2:
+            if (i_frequency > 50000000 && (this->dvb_plp_id))
+               return SYS_DVBT2;
             break;
          default:
             break;
@@ -886,17 +944,20 @@ void cLdvbdev::FrontendSet(bool b_init)
    } else {
       version = info_cmdargs[0].u.data;
       if (ioctl(this->i_frontend, FE_GET_PROPERTY, &enum_cmdseq) < 0) {
-         cLbugf(cL::dbg_dvb, "unable to query frontend\n");
+         cLbug(cL::dbg_dvb, "unable to query frontend\n");
          exit(1);
       }
       i_systems = enum_cmdargs[0].u.buffer.len;
       if (i_systems < 1) {
-         cLbugf(cL::dbg_dvb, "no available delivery system\n");
+         cLbug(cL::dbg_dvb, "no available delivery system\n");
          exit(1);
       }
 
-      for (int i = 0; i < i_systems; i++)
-         p_systems[i] = enum_cmdargs[0].u.buffer.data[i];
+      cLbugf(cL::dbg_dvb, "adding %d systems\n", i_systems);
+      for (int i = 0; i < i_systems; i++) {
+         cLbugf(cL::dbg_dvb, "adding: %d\n", i);
+         p_systems[i] = (fe_delivery_system_t)(enum_cmdargs[0].u.buffer.data[i]);
+      }
    }
 #endif
 
@@ -932,6 +993,28 @@ void cLdvbdev::FrontendSet(bool b_init)
                this->i_guard, this->i_transmission
          );
          break;
+      case SYS_DVBT2:
+         p = &dvbt2_cmdseq;
+         p->props[DELSYS].u.data = system;
+         p->props[FREQUENCY].u.data = this->i_frequency;
+         p->props[INVERSION].u.data = this->GetInversion();
+         if (this->psz_modulation != (char *) 0)
+            p->props[MODULATION].u.data = this->GetModulation();
+         p->props[BANDWIDTH].u.data = this->i_bandwidth * 1000000;
+         p->props[FEC_INNER].u.data = this->GetFECInner(info.caps);
+         p->props[FEC_LP].u.data = this->GetFECLP(info.caps);
+         p->props[GUARD].u.data = this->GetGuard();
+         p->props[TRANSMISSION].u.data = this->GetTransmission();
+         p->props[HIERARCHY].u.data = this->GetHierarchy();
+         p->props[PLP_ID].u.data = this->dvb_plp_id;
+ 
+         cLbugf(cL::dbg_dvb, "tuning DVB-T2 frontend to f=%d bandwidth=%d inversion=%d fec_hp=%d fec_lp=%d hierarchy=%d modulation=%s guard=%d transmission=%d PLP_ID=%d ",
+               this->i_frequency, this->i_bandwidth, this->i_inversion, this->i_fec, this->i_fec_lp,
+               this->i_hierarchy,
+               (this->psz_modulation == (char *) 0 ? "qam_auto" : this->psz_modulation),
+               this->i_guard, this->i_transmission, p->props[PLP_ID].u.data
+         );
+         break;
 
 #if DVBAPI_VERSION >= 505
       case SYS_DVBC_ANNEX_A:
@@ -964,9 +1047,10 @@ void cLdvbdev::FrontendSet(bool b_init)
          if (this->psz_modulation != (char *) 0) {
             p = &dvbs2_cmdseq;
             p->props[MODULATION].u.data = this->GetModulation();
-            p->props[PILOT].u.data = this->GetPilot();
-            p->props[ROLLOFF].u.data = this->GetRollOff();
-            p->props[MIS].u.data = this->i_mis;
+            p->props[IDX_DVBS2_PILOT].u.data = this->GetPilot();
+            p->props[IDX_DVBS2_ROLLOFF].u.data = this->GetRollOff();
+            p->props[IDX_DVBS2_STREAM_ID].u.data = this->i_mis;
+
          } else {
             p = &dvbs_cmdseq;
          }
@@ -991,6 +1075,28 @@ void cLdvbdev::FrontendSet(bool b_init)
             p->props[MODULATION].u.data = this->GetModulation();
 
          cLbugf(cL::dbg_dvb, "tuning ATSC frontend to f=%d inversion=%d modulation=%s\n", this->i_frequency, this->i_inversion, this->psz_modulation == (char *) 0 ? "qam_auto" : this->psz_modulation);
+         break;
+
+      case SYS_ISDBT:
+         p = &isdbt_cmdseq;
+         p->props[DELSYS].u.data = system;
+         p->props[FREQUENCY].u.data = this->i_frequency;
+         p->props[ISDBT_BANDWIDTH].u.data = this->i_bandwidth * 1000000;
+         p->props[INVERSION].u.data = this->GetInversion();
+         p->props[ISDBT_LAYERA_FEC].u.data = FEC_AUTO;
+         p->props[ISDBT_LAYERA_MODULATION].u.data = QAM_AUTO;
+         p->props[ISDBT_LAYERA_SEGMENT_COUNT].u.data = 0;
+         p->props[ISDBT_LAYERA_TIME_INTERLEAVING].u.data = 0;
+         p->props[ISDBT_LAYERB_FEC].u.data = FEC_AUTO;
+         p->props[ISDBT_LAYERB_MODULATION].u.data = QAM_AUTO;
+         p->props[ISDBT_LAYERB_SEGMENT_COUNT].u.data = 0;
+         p->props[ISDBT_LAYERB_TIME_INTERLEAVING].u.data = 0;
+         p->props[ISDBT_LAYERC_FEC].u.data = FEC_AUTO;
+         p->props[ISDBT_LAYERC_MODULATION].u.data = QAM_AUTO;
+         p->props[ISDBT_LAYERC_SEGMENT_COUNT].u.data = 0;
+         p->props[ISDBT_LAYERC_TIME_INTERLEAVING].u.data = 0;
+ 
+         cLbugf(cL::dbg_dvb, "tuning ISDB-T frontend to f=%d bandwidth=%d ", this->i_frequency, this->i_bandwidth);
          break;
 
       default:

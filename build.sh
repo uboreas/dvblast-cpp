@@ -10,7 +10,8 @@ rm -rf build
 mkdir build
 cd build
 
-cmake -DCMAKE_BUILD_TYPE=Release "${pw}"
+cmake -DCMAKE_TOOLCHAIN_FILE=/opt/devel/projects/cLsuite/src/scripts/toolchain_x86.cmake -DCMAKE_BUILD_TYPE=Release "${pw}"
+# cmake -DCMAKE_BUILD_TYPE=Release "${pw}"
 ex="${?}"
 if [ "${ex}" == "0" ]; then
    make

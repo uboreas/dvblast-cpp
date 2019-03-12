@@ -1,7 +1,6 @@
 /*
  * cLdvbdevc.c
  * Gokhan Poyraz <gokhan@kylone.com>
- *
  * Based on code from:
  *****************************************************************************
  * dvb.c: linux-dvb input for DVBlast
@@ -25,16 +24,17 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#include <linux/dvb/version.h>
-#include <linux/dvb/dmx.h>
-#include <linux/dvb/frontend.h>
-#include <linux/dvb/ca.h>
+#include <linux_dvb_version.h>
+#include <linux_dvb_dmx.h>
+#include <linux_dvb_frontend.h>
+#include <linux_dvb_ca.h>
 
 #define DVBAPI_VERSION ((DVB_API_VERSION)*100+(DVB_API_VERSION_MINOR))
 
 #if DVBAPI_VERSION < 508
 #define DTV_STREAM_ID        42
 #define FE_CAN_MULTISTREAM   0x4000000
+#define FE_CAN_TURBO_FEC     0x8000000
 #endif
 
 #if DVBAPI_VERSION >= 505
@@ -76,9 +76,9 @@ struct dtv_property dvbs2_cmdargs[] = {
       { .cmd = DTV_INVERSION,       .u.data = INVERSION_AUTO },
       { .cmd = DTV_SYMBOL_RATE,     .u.data = 27500000 },
       { .cmd = DTV_INNER_FEC,       .u.data = FEC_AUTO },
-      { .cmd = DTV_PILOT,           .u.data = PILOT_AUTO },
-      { .cmd = DTV_ROLLOFF,         .u.data = ROLLOFF_AUTO },
-      { .cmd = DTV_STREAM_ID,       .u.data = 0 },
+      { .cmd = DTV_PILOT,           .u.data = PILOT_AUTO },   /* idx: 6 */
+      { .cmd = DTV_ROLLOFF,         .u.data = ROLLOFF_AUTO }, /* idx: 7 */
+      { .cmd = DTV_STREAM_ID,       .u.data = 0 },            /* idx: 8 */
       { .cmd = DTV_TUNE },
 };
 struct dtv_properties dvbs2_cmdseq = {
@@ -116,6 +116,27 @@ struct dtv_property dvbt_cmdargs[] = {
       { .cmd = DTV_HIERARCHY,       .u.data = HIERARCHY_AUTO },
       { .cmd = DTV_TUNE },
 };
+
+struct dtv_property dvbt2_cmdargs[] = {
+      { .cmd = DTV_DELIVERY_SYSTEM, .u.data = SYS_DVBT2 },
+      { .cmd = DTV_FREQUENCY,       .u.data = 0 },
+      { .cmd = DTV_MODULATION,      .u.data = QAM_AUTO },
+      { .cmd = DTV_INVERSION,       .u.data = INVERSION_AUTO },
+      { .cmd = DTV_BANDWIDTH_HZ,    .u.data = 8000000 },
+      { .cmd = DTV_CODE_RATE_HP,    .u.data = FEC_AUTO },
+      { .cmd = DTV_CODE_RATE_LP,    .u.data = FEC_AUTO },
+      { .cmd = DTV_GUARD_INTERVAL,  .u.data = GUARD_INTERVAL_AUTO },
+      { .cmd = DTV_TRANSMISSION_MODE,.u.data = TRANSMISSION_MODE_AUTO },
+      { .cmd = DTV_HIERARCHY,       .u.data = HIERARCHY_AUTO },
+      { .cmd = DTV_STREAM_ID,      .u.data = 0 },
+      { .cmd = DTV_TUNE },
+};
+
+struct dtv_properties dvbt2_cmdseq = {
+      .num = sizeof(dvbt2_cmdargs)/sizeof(struct dtv_property),
+      .props = dvbt2_cmdargs
+};
+
 struct dtv_properties dvbt_cmdseq = {
       .num = sizeof(dvbt_cmdargs)/sizeof(struct dtv_property),
       .props = dvbt_cmdargs
@@ -132,6 +153,31 @@ struct dtv_property atsc_cmdargs[] = {
 struct dtv_properties atsc_cmdseq = {
       .num = sizeof(atsc_cmdargs)/sizeof(struct dtv_property),
       .props = atsc_cmdargs
+};
+
+struct dtv_property isdbt_cmdargs[] = {
+      { .cmd = DTV_DELIVERY_SYSTEM, .u.data = SYS_ISDBT },
+      { .cmd = DTV_FREQUENCY,       .u.data = 0 },
+      { .cmd = DTV_BANDWIDTH_HZ,    .u.data = 6000000 },
+      { .cmd = DTV_INVERSION,       .u.data = INVERSION_AUTO },
+      { .cmd = DTV_ISDBT_LAYERA_FEC,    .u.data = FEC_AUTO },
+      { .cmd = DTV_ISDBT_LAYERA_MODULATION,    .u.data = QAM_AUTO },
+      { .cmd = DTV_ISDBT_LAYERA_SEGMENT_COUNT,  .u.data = 0 },
+      { .cmd = DTV_ISDBT_LAYERA_TIME_INTERLEAVING,.u.data = 0 },
+      { .cmd = DTV_ISDBT_LAYERB_FEC,    .u.data = FEC_AUTO },
+      { .cmd = DTV_ISDBT_LAYERB_MODULATION,    .u.data = QAM_AUTO },
+      { .cmd = DTV_ISDBT_LAYERB_SEGMENT_COUNT,  .u.data = 0 },
+      { .cmd = DTV_ISDBT_LAYERB_TIME_INTERLEAVING,.u.data = 0 },
+      { .cmd = DTV_ISDBT_LAYERC_FEC,    .u.data = FEC_AUTO },
+      { .cmd = DTV_ISDBT_LAYERC_MODULATION,    .u.data = QAM_AUTO },
+      { .cmd = DTV_ISDBT_LAYERC_SEGMENT_COUNT,  .u.data = 0 },
+      { .cmd = DTV_ISDBT_LAYERC_TIME_INTERLEAVING,.u.data = 0 },
+      { .cmd = DTV_TUNE },
+};
+
+struct dtv_properties isdbt_cmdseq = {
+      .num = sizeof(isdbt_cmdargs)/sizeof(struct dtv_property),
+      .props = isdbt_cmdargs
 };
 
 struct dtv_property pclear[] = {

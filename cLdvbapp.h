@@ -1,8 +1,6 @@
 /*
  * cLdvbapp.h
- * Copyright (C) 2016, Kylone
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * This program is free software; you can redistribute it and/or modify

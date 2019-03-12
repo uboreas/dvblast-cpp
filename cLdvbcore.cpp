@@ -1,7 +1,6 @@
 /*
  * cLdvbcore.cpp
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * util.c
@@ -38,12 +37,13 @@
 
 cLdvbobj::cLdvbobj()
 {
-   this->psz_native_charset = "UTF-8";
+   this->psz_native_charset = "UTF-8//IGNORE";
    this->psz_mrtg_file = (char *) 0;
    this->event_loop = (void *) 0;
    this->i_print_period = (mtime_t) 0;
    this->i_priority = -1;
    this->i_adapter = 0;
+   this->i_delsysatsc = 0;
    srand((unsigned int)(time(0) * getpid()));
    cLbug(cL::dbg_high, "cLdvbobj created\n");
 }

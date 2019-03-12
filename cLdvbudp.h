@@ -1,8 +1,6 @@
 /*
  * cLdvbudp.h
- * Copyright (C) 2016, Kylone
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * udp.c: UDP input for DVBlast
@@ -42,7 +40,11 @@ class cLdvbudp : public cLdvbdemux {
       uint8_t pi_ssrc[4];
       uint16_t i_seqnum;
       bool b_sync;
+      mtime_t i_last_print;
+      struct sockaddr_storage last_addr;
       char *psz_udp_src;
+      bool piped;
+      int p_readv(int fd, void *p, int ni);
       static void udp_Read(void *loop, void *w, int revents);
       static void udp_MuteCb(void *loop, void *w, int revents);
 
@@ -57,6 +59,7 @@ class cLdvbudp : public cLdvbdemux {
       virtual void dev_UnsetFilter(int i_fd, uint16_t i_pid);
 
    public:
+      void udp_Read_print_refactory();
       inline void setsource(char *s) {
          this->psz_udp_src = s;
       }

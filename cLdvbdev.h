@@ -1,7 +1,6 @@
 /*
  * cLdvbdev.h
- * Authors: Gokhan Poyraz <gokhan@kylone.com>
- *
+ * Gokhan Poyraz <gokhan@kylone.com>
  * Based on code from:
  *****************************************************************************
  * dvb.c: linux-dvb input for DVBlast
@@ -30,10 +29,10 @@
 
 #include <cLdvbdemux.h>
 
-#include <linux/dvb/version.h>
-#include <linux/dvb/dmx.h>
-#include <linux/dvb/frontend.h>
-#include <linux/dvb/ca.h>
+#include <linux_dvb_version.h>
+#include <linux_dvb_dmx.h>
+#include <linux_dvb_frontend.h>
+#include <linux_dvb_ca.h>
 
 #define DVBAPI_VERSION ((DVB_API_VERSION)*100+(DVB_API_VERSION_MINOR))
 
@@ -62,6 +61,7 @@ class cLdvbdev : public cLdvbdemux {
       int b_tone;
       int i_bandwidth;
       int i_inversion;
+      int dvb_plp_id;
       int i_srate;
       int i_fec;
       int i_rolloff;
@@ -77,6 +77,11 @@ class cLdvbdev : public cLdvbdemux {
       int i_hierarchy;
       mtime_t i_frontend_timeout_duration;
       int i_dvr_buffer_size;
+      const char *psz_lnb_type;
+      const char *psz_mis_pls_mode;
+      int i_mis_pls_mode;
+      int i_mis_pls_code;
+      int i_mis_is_id;
 
       static void DVRRead(void *loop, void *w, int revents);
       static void DVRMuteCb(void *loop, void *w, int revents);
@@ -122,6 +127,11 @@ class cLdvbdev : public cLdvbdemux {
       }
       inline void set_delivery_system(char *s) {
          this->psz_delsys = s;
+         if (strcasecmp(this->psz_delsys, "ATSC") == 0)
+            this->i_delsysatsc = 1;
+      }
+      inline void set_dvb_plp_id(int i) {
+         this->dvb_plp_id = i;
       }
       inline void set_fec(int i) {
          this->i_fec = i;
@@ -168,7 +178,35 @@ class cLdvbdev : public cLdvbdemux {
       inline void set_hierarchy(int i) {
          this->i_hierarchy = i;
       }
-
+      inline void set_lnb_type(const char *s) {
+         this->psz_lnb_type = s;
+      }
+      inline bool set_mis_pls_mode(const char *m) {
+         this->psz_mis_pls_mode = m;
+         if (streq(this->psz_mis_pls_mode, "ROOT")) {
+             this->i_mis_pls_mode = 0;
+         } else
+         if (streq(this->psz_mis_pls_mode, "GOLD")) {
+             this->i_mis_pls_mode = 1;
+         } else
+         if (streq(this->psz_mis_pls_mode, "COMBO" ) ) {
+             this->i_mis_pls_mode = 2;
+         } else {
+            return false;
+         }
+         return true;
+      }
+      inline void set_mis_pls_mode(int i) {
+         this->i_mis_pls_mode = i;
+      }
+      inline bool set_mis_pls_code(int i) {
+         this->i_mis_pls_code = i;
+         return (this->i_mis_pls_code >= 0 && this->i_mis_pls_code <= 262143);
+      }
+      inline bool set_mis_is_id(int i) {
+         this->i_mis_is_id = i;
+         return (this->i_mis_is_id >= 0 || this->i_mis_is_id <= 255);
+      }
       uint8_t dvb_FrontendStatus(uint8_t *p_answer, ssize_t *pi_size);
 
       cLdvbdev();
