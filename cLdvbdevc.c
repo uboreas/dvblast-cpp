@@ -62,6 +62,9 @@ struct dtv_property dvbs_cmdargs[] = {
       { .cmd = DTV_INVERSION,       .u.data = INVERSION_AUTO },
       { .cmd = DTV_SYMBOL_RATE,     .u.data = 27500000 },
       { .cmd = DTV_INNER_FEC,       .u.data = FEC_AUTO },
+      { .cmd = DTV_PILOT,           .u.data = PILOT_AUTO },   /* idx: 6 */
+      { .cmd = DTV_ROLLOFF,         .u.data = ROLLOFF_AUTO }, /* idx: 7 */
+      { .cmd = DTV_STREAM_ID,       .u.data = 0 },            /* idx: 8 */
       { .cmd = DTV_TUNE },
 };
 struct dtv_properties dvbs_cmdseq = {

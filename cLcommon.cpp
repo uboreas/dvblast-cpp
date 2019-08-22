@@ -86,10 +86,10 @@ namespace cL {
          if (sevr) {
             char *s = (char *) 0;
             xbughead(&s);
-            fprintf(stderr, "%s", s);
+            fprintf(stdout, "%s", s);
             ::free(s);
          }
-         fputs(msg, stderr);
+         fputs(msg, stdout);
       }
    }
 
@@ -99,12 +99,12 @@ namespace cL {
          if (sevr) {
             char *s = (char *) 0;
             xbughead(&s);
-            fprintf(stderr, "%s", s);
+            fprintf(stdout, "%s", s);
             ::free(s);
          }
          va_list xap;
          va_start(xap, f);
-         vfprintf(stderr, f, xap);
+         vfprintf(stdout, f, xap);
          va_end(xap);
       }
    }

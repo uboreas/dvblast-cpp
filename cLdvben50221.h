@@ -72,6 +72,8 @@ class cLdvben50221 : public cLdvboutput {
          RET_PMT                 = 12,
          RET_PIDS                = 13,
          RET_PID                 = 14,
+         RET_EIT_PF              = 15,
+         RET_EIT_SCHEDULE        = 16,
          RET_HUH                 = 255,
       } ctl_cmd_answer_t;
 

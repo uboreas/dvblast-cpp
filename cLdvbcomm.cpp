@@ -233,6 +233,8 @@ namespace libcLdvbcomm {
             break;
          }
 
+         case libcLdvbcomm::CMD_GET_EIT_PF:
+         case libcLdvbcomm::CMD_GET_EIT_SCHEDULE:
          case libcLdvbcomm::CMD_GET_PMT:
          {
             if ( i_size < CLDVB_COMM_HEADER_SIZE + 2 )
@@ -242,11 +244,19 @@ namespace libcLdvbcomm {
             }
 
             uint16_t i_sid = (uint16_t)((p_input[0] << 8) | p_input[1]);
-            p_packed_section = libcLdvbdemux::demux_get_packed_PMT(i_sid, &i_packed_section_size);
+            if ( i_command == libcLdvbcomm::CMD_GET_EIT_PF ) {
+                i_answer = libcLdvben50221::RET_EIT_PF;
+                p_packed_section = demux_get_packed_EIT_pf( i_sid, &i_packed_section_size );
+            } else if ( i_command == libcLdvbcomm::CMD_GET_EIT_SCHEDULE ) {
+                i_answer = libcLdvben50221::RET_EIT_SCHEDULE;
+                p_packed_section = demux_get_packed_EIT_schedule( i_sid, &i_packed_section_size );
+            } else {
+                i_answer = libcLdvben50221::RET_PMT;
+                p_packed_section = demux_get_packed_PMT(i_sid, &i_packed_section_size);
+            }
 
             if ( p_packed_section && i_packed_section_size )
             {
-               i_answer = libcLdvben50221::RET_PMT;
                i_answer_size = i_packed_section_size;
                memcpy( p_answer + CLDVB_COMM_HEADER_SIZE, p_packed_section, i_packed_section_size );
                free( p_packed_section );

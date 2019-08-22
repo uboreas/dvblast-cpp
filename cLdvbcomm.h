@@ -42,6 +42,8 @@ namespace libcLdvbcomm {
       CMD_GET_PID             = 16, /* arg: pid (uint16_t) */
       CMD_MMI_SEND_TEXT       = 17, /* arg: slot, libcLdvben50221::en50221_mmi_object_t */
       CMD_MMI_SEND_CHOICE     = 18, /* arg: slot, libcLdvben50221::en50221_mmi_object_t */
+      CMD_GET_EIT_PF          = 19, /* arg: service_id (uint16_t) */
+      CMD_GET_EIT_SCHEDULE    = 20, /* arg: service_id (uint16_t) */
    } ctl_cmd_t;
 
    extern char *psz_srv_socket;

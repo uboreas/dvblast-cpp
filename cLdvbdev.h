@@ -39,6 +39,7 @@
 #if DVBAPI_VERSION < 508
 #define DTV_STREAM_ID            42
 #define FE_CAN_MULTISTREAM       0x4000000
+#define FE_CAN_TURBO_FEC         0x8000000
 #endif
 
 #define DVB_MAX_DELIVERY_SYSTEMS 20
